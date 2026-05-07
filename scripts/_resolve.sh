@@ -16,9 +16,16 @@ find_maestro_root() {
     # 1. .maestro marker file — walk up looking for it
     local check="$dir"
     while [[ "$check" != "/" && "$check" != "." ]]; do
-        if [[ -f "$check/.maestro" ]]; then
+        # Check both .otaman (preferred) and .maestro (legacy) markers
+        local marker=""
+        if [[ -f "$check/.otaman" ]]; then
+            marker="$check/.otaman"
+        elif [[ -f "$check/.maestro" ]]; then
+            marker="$check/.maestro"
+        fi
+        if [[ -n "$marker" ]]; then
             local rel
-            rel="$(_parse_marker_field "$check/.maestro" maestro_root)"
+            rel="$(_parse_marker_field "$marker" maestro_root)"
             if [[ -n "$rel" ]]; then
                 local candidate
                 candidate="$(cd "$check/$rel" 2>/dev/null && pwd)" || true
@@ -31,10 +38,11 @@ find_maestro_root() {
         check="$(dirname "$check")"
     done
 
-    # 2. MAESTRO_ROOT environment variable
-    if [[ -n "${MAESTRO_ROOT:-}" ]]; then
-        if [[ -f "$MAESTRO_ROOT/platform.yaml" ]] || [[ -d "$MAESTRO_ROOT/.agents" ]]; then
-            echo "$MAESTRO_ROOT"
+    # 2. OTAMAN_ROOT (preferred) or MAESTRO_ROOT (legacy) env var
+    local env_root="${OTAMAN_ROOT:-${MAESTRO_ROOT:-}}"
+    if [[ -n "$env_root" ]]; then
+        if [[ -f "$env_root/platform.yaml" ]] || [[ -d "$env_root/.agents" ]]; then
+            echo "$env_root"
             return 0
         fi
     fi
@@ -112,7 +120,10 @@ find_marker() {
     local dir="${1:-$PWD}"
     local check="$dir"
     while [[ "$check" != "/" && "$check" != "." ]]; do
-        if [[ -f "$check/.maestro" ]]; then
+        if [[ -f "$check/.otaman" ]]; then
+            echo "$check/.otaman"
+            return 0
+        elif [[ -f "$check/.maestro" ]]; then
             echo "$check/.maestro"
             return 0
         fi

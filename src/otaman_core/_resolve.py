@@ -39,10 +39,12 @@ def find_maestro_root(start: Path | None = None) -> Path | None:
     """
     origin = (start or Path.cwd()).resolve()
 
-    # 1. .maestro marker file — walk up looking for it
+    # 1. .otaman (preferred) or .maestro (legacy) marker file — walk up
     current = origin
     while current != current.parent:
-        marker = current / ".maestro"
+        marker = current / ".otaman"
+        if not marker.is_file():
+            marker = current / ".maestro"
         if marker.is_file():
             rel = parse_marker_fields(marker).get("maestro_root")
             if rel:
@@ -52,7 +54,7 @@ def find_maestro_root(start: Path | None = None) -> Path | None:
         current = current.parent
 
     # 2. MAESTRO_ROOT environment variable
-    env_root = os.environ.get("MAESTRO_ROOT", "").strip()
+    env_root = os.environ.get("OTAMAN_ROOT", os.environ.get("MAESTRO_ROOT", "")).strip()
     if env_root:
         p = Path(env_root).resolve()
         if (p / "platform.yaml").exists() or (p / ".agents").is_dir():
