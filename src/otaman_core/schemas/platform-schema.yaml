@@ -1,0 +1,458 @@
+# JSON Schema for platform.yaml (expressed in YAML for readability)
+# Used by scripts/validate-platform.py to validate user configs.
+
+type: object
+required: [project, version, repos]
+additionalProperties: false
+
+properties:
+  project:
+    type: string
+    pattern: "^[a-z][a-z0-9-]{1,63}$"
+    description: "Project identifier (lowercase, hyphens, 2-64 chars)"
+
+  version:
+    type: string
+    enum: ["1.0"]
+    description: "Schema version"
+
+  repos:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required: [name, path, owner]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9._-]{1,63}$"
+          description: "Repo identifier — allows letters (any case), digits, dots, dashes, underscores. Real-world repos like 'GreenBin.Resources' or 'web.public' work as-is."
+        path:
+          type: string
+          description: "Relative path to the repo directory (from the maestro folder, e.g. ../my-repo)"
+        owner:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{1,63}$"
+          description: "Agent name that owns this repo"
+        remote:
+          type: string
+          description: "Git remote URL for cloning (e.g., git@github.com:org/repo.git)"
+        tech:
+          type: array
+          items:
+            type: string
+          description: "Technology stack tags"
+        description:
+          type: string
+          maxLength: 256
+          description: "Human-readable repo description"
+        disabled:
+          type: boolean
+          default: false
+          description: "If true, this repo is skipped by the launcher, task assignment, and status aggregation. Use for archived or suspended repos. Override in the launcher with -IncludeDisabled."
+        specs_dir:
+          type: array
+          items:
+            type: string
+          description: "Spec folder names in the specs repo that map to this repo"
+        launch:
+          type: object
+          required: [shell, commands]
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+              maxLength: 64
+              description: "Terminal tab title (defaults to repo name)"
+            color:
+              type: string
+              pattern: "^#[0-9a-fA-F]{6}$"
+              description: "Hex color for terminal tab"
+            shell:
+              type: string
+              enum: [wsl, powershell, bash, ssh]
+              description: "Shell type: wsl (Windows/WSL), powershell (Windows), bash (Linux/macOS), ssh (remote server)"
+            ssh_host:
+              type: string
+              description: "SSH target (e.g., user@hostname). Required when shell=ssh."
+            ssh_path:
+              type: string
+              description: "Absolute path to repo on the remote server. If omitted, uses repo path."
+            commands:
+              type: array
+              minItems: 1
+              items:
+                type: string
+              description: "Sequential commands to execute in the shell"
+
+  specs:
+    type: object
+    required: [format]
+    additionalProperties: false
+    properties:
+      path:
+        type: string
+        description: "Relative path to specs repo (required when format=openspec)"
+      format:
+        type: string
+        enum: [openspec, fallback]
+        description: "openspec = delegate to OpenSpec plugin; fallback = maestro lightweight proposals"
+    # Note: path is required when format=openspec. This is enforced by validate-platform.py
+    # since JSON Schema conditionals (if/then) are not widely supported in YAML schema loaders.
+
+  contracts:
+    type: object
+    required: [path, format]
+    additionalProperties: false
+    properties:
+      path:
+        type: string
+        description: "Relative path to API contracts directory"
+      format:
+        type: string
+        enum: [openapi, jsonschema, protobuf]
+      auto_detect:
+        type: boolean
+        default: true
+        description: "Scan for *.openapi.yaml, swagger/, etc."
+
+  observers:
+    type: array
+    items:
+      type: object
+      required: [role, triggers]
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{1,63}$"
+        triggers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum:
+              - pr
+              - spec-change
+              - architecture-change
+              - dependency-update
+              - auth-change
+              - infra-change
+              - dockerfile-change
+              - ci-change
+              - code-change
+
+  communication:
+    type: object
+    required: [bus_path, format]
+    additionalProperties: false
+    properties:
+      bus_path:
+        type: string
+        description: "Relative path to the message bus directory"
+      format:
+        type: string
+        enum: [markdown]
+      max_age_days:
+        type: integer
+        minimum: 1
+        maximum: 365
+        default: 30
+
+  # --- Phase 7+ optional sections (additive, backward-compatible) ---
+
+  git_host:
+    type: object
+    required: [provider, token]
+    additionalProperties: false
+    properties:
+      provider:
+        type: string
+        enum: [github, gitlab, bitbucket, azure-devops]
+        description: "Git host provider. Drives which adapter loads in scripts/git_host_<provider>.py."
+      host:
+        type: string
+        description: "Hostname override (e.g., GitHub Enterprise). Defaults to the provider's SaaS host (github.com, gitlab.com, etc.)."
+      token:
+        oneOf:
+          - type: object
+            required: [sources]
+            additionalProperties: false
+            properties:
+              sources:
+                type: array
+                minItems: 1
+                items:
+                  oneOf:
+                    - type: object
+                      required: [type, name]
+                      additionalProperties: false
+                      properties:
+                        type:
+                          type: string
+                          enum: [env]
+                        name:
+                          type: string
+                          description: "Environment variable name (e.g., MAESTRO_GH_TOKEN)"
+                    - type: object
+                      required: [type, name]
+                      additionalProperties: false
+                      properties:
+                        type:
+                          type: string
+                          enum: [dotenv]
+                        name:
+                          type: string
+                          description: "Variable name to read from .maestro/secrets.env"
+                        path:
+                          type: string
+                          description: "Optional path override (defaults to .maestro/secrets.env)"
+                    - type: object
+                      required: [type, account]
+                      additionalProperties: false
+                      properties:
+                        type:
+                          type: string
+                          enum: [keyring]
+                        service:
+                          type: string
+                          description: "Keyring service name (defaults to 'maestro')"
+                        account:
+                          type: string
+                          description: "Keyring account/key (e.g., 'gitlab-greenbin', 'tg-personal')"
+          - type: string
+            description: "Inline literal token (NOT recommended — use a SecretRef sources block instead)."
+        description: "PAT lookup chain. Maestro never stores the token in YAML; it resolves at runtime from env / dotenv / OS keyring. See scripts/_secrets.py."
+      default_scope:
+        type: array
+        items:
+          type: string
+        description: "Documents intended scope (read, write, etc.) — informational, not enforced."
+    description: "Git host PR/MR API integration (Phase 7). Enables `maestro git-host pr|post-review`."
+
+  git_platform:
+    type: object
+    additionalProperties: true
+    properties:
+      provider:
+        type: string
+        enum: [github, gitlab, bitbucket, azure-devops]
+      org:
+        type: string
+        description: "Organization or namespace under which repos live. Used by clone-project.py to derive remotes when a repo entry has no explicit `remote:` field."
+    description: "Lightweight platform metadata for cloning/setup. Distinct from git_host: (which is the API integration). Either or both may be set."
+
+  models:
+    type: object
+    additionalProperties: false
+    properties:
+      default:
+        type: string
+        enum: [opus, sonnet, haiku, inherit]
+        description: "Project-wide default model alias. 'inherit' means use Claude Code's own default."
+      default_effort:
+        type: string
+        enum: [low, medium, high, xhigh, max, inherit]
+        description: "Project-wide default effort/thinking level."
+      by_repo:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            model:
+              type: string
+              enum: [opus, sonnet, haiku, inherit]
+            effort:
+              type: string
+              enum: [low, medium, high, xhigh, max, inherit]
+        description: "Per-repo model/effort overrides. Keys are repo names matching repos[].name."
+      by_agent:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            model:
+              type: string
+              enum: [opus, sonnet, haiku, inherit]
+            effort:
+              type: string
+              enum: [low, medium, high, xhigh, max, inherit]
+        description: "Per-agent model/effort overrides. Keys are agent names matching repos[].owner."
+    description: >
+      Model + effort tier resolution. Walks: CLI override → by_repo → by_agent →
+      default. The launcher injects ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL
+      based on the resolved tier. See scripts/_models_resolve.py and
+      `maestro models` CLI.
+
+  domain:
+    type: string
+    enum: [healthcare, fintech, marketplace, ml-ai, saas, ecommerce, iot, general]
+    description: "Project domain — loads domain-specific agent templates, path rules, and estimation adjustments"
+
+  lifecycle:
+    type: object
+    additionalProperties: false
+    properties:
+      phases:
+        type: array
+        items:
+          type: string
+        description: >
+          Custom lifecycle phases for this project. Default: [presale, discovery, development, support].
+          Override per domain/company (e.g., [presale, discovery, mvp, phase-2, launch, support]).
+      gates:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            required:
+              type: array
+              items:
+                type: string
+              description: "Artifact files that must exist before passing this gate"
+            checks:
+              type: array
+              items:
+                type: string
+              description: "Validation commands to run (e.g., 'pytest', 'maestro validate')"
+        description: >
+          Gate definitions keyed by transition name (e.g., "discovery-to-development").
+          Each gate lists required artifacts and validation checks.
+
+  standards:
+    type: object
+    additionalProperties: false
+    properties:
+      methodology:
+        type: array
+        items:
+          type: string
+        description: "Development methodologies: tdd, ddd, bdd, trunk-based, gitflow, conventional-commits, etc."
+      git:
+        type: object
+        additionalProperties: false
+        properties:
+          branching:
+            type: string
+            enum: [trunk-based, gitflow, github-flow, custom]
+            description: "Branching strategy. Use 'custom' when none of the standard models fit; document the actual workflow in 'notes'."
+          commits:
+            type: string
+            enum: [conventional, freeform]
+          pr_required:
+            type: boolean
+            default: true
+          protected_branches:
+            type: array
+            items:
+              type: string
+            description: "Branches that agents cannot commit to directly (default: main, master, develop)"
+          development_branch:
+            type: string
+            description: "Long-lived branch where agents land integration work (e.g., 'develop', 'staging'). Distinct from main/master which is reserved for release."
+          notes:
+            type: string
+            description: "Free-form description of the team's git workflow — used to elaborate on 'custom' branching, document review rules, etc. Injected into generated CLAUDE.md."
+      api:
+        type: object
+        additionalProperties: false
+        properties:
+          style:
+            type: string
+            enum: [rest, graphql, grpc, mixed]
+          spec:
+            type: string
+            description: "API spec format (e.g., openapi-3.1)"
+          versioning:
+            type: string
+            enum: [url, header, none]
+          format:
+            type: string
+            description: "Response format (e.g., json-api, plain-json)"
+      repo_standards:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: true
+          properties:
+            language:
+              type: string
+            runtime:
+              type: string
+            framework:
+              type: string
+            package_manager:
+              type: string
+            styling:
+              type: string
+            testing:
+              type: object
+              additionalProperties: false
+              properties:
+                unit:
+                  type: string
+                e2e:
+                  type: string
+                coverage_min:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+            patterns:
+              type: array
+              items:
+                type: string
+              description: "Architecture patterns: ddd, cqrs, event-sourcing, feature-sliced-design, etc."
+            linting:
+              type: array
+              items:
+                type: string
+            rules:
+              type: array
+              items:
+                type: string
+              description: "Free-form project-specific coding rules injected into CLAUDE.md"
+        description: >
+          Per-repo standards keyed by repo name. Overrides/extends project-wide defaults.
+
+  profiles:
+    type: object
+    additionalProperties:
+      type: object
+      properties:
+        description:
+          type: string
+        repos:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: string
+              enum: [all]
+      required: [repos]
+    description: >
+      Launch profiles — named groups of repos for specific workflows.
+      Used by launch-agents.ps1 to filter which agents to launch.
+
+  knowledge:
+    type: array
+    items:
+      type: object
+      required: [pack]
+      additionalProperties: false
+      properties:
+        pack:
+          type: string
+          description: "Knowledge pack reference: name@version (from revlet.ai) or 'manual' for human-provided"
+        path:
+          type: string
+          description: "Local path for manual knowledge (e.g., .agents/knowledge/eclinicalworks-api/)"
+        status:
+          type: string
+          enum: [ready, needs_docs, needs_examples, needs_full_docs]
+          description: "Knowledge readiness status"
+    description: >
+      Tech stack knowledge packs. Auto-fetched from revlet.ai when available,
+      or manually provided by human. Referenced in generated CLAUDE.md.
