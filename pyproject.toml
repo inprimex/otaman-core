@@ -8,7 +8,8 @@ license = { text = "UNLICENSED" }
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+keyring = ["keyring>=24"]
+test = ["pytest>=7", "keyring>=24"]
 
 [build-system]
 requires = ["hatchling"]
