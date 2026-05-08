@@ -183,41 +183,43 @@ def expand_config_dir(config_dir: str, shell: str, *, home: str | None = None) -
     return s.replace("\\", "/")
 
 
-# --- Profile resolution (formerly "account") --------------------------------
-# Profile name is the per-host identity scope used for Telegram routing,
+# --- Routing resolution (formerly "account", briefly "profile") -------------
+# Routing name is the per-host identity scope used for Telegram routing,
 # AFK state tagging, and bridge daemon endpoint files. Renamed from
-# "account" 2026-05-09 because that name was overloaded with provider/AI
-# account vocabulary and confused users. Old name kept as fallback for
-# one release window; sunset planned for otaman-core 1.0 alongside the
+# "account" 2026-05-09 (which was overloaded with provider-account
+# vocabulary). Briefly renamed to "profile" but that collided with
+# platform.yaml's existing profiles: block (repo-subset bundles), so
+# settled on "routing". Legacy "account" name kept as fallback for one
+# release window; sunset planned for otaman-core 1.0 alongside the
 # .maestro marker dual-recognition.
 
 import os as _os
 
 
-def active_profile_env() -> str | None:
-    """Read the active profile name from environment.
+def active_routing_env() -> str | None:
+    """Read the active routing name from environment.
 
     Resolution order (most preferred first):
-      1. ``OTAMAN_ACTIVE_PROFILE`` — current name (set by launcher).
-      2. ``OTAMAN_ACTIVE_ACCOUNT`` — pre-rename otaman name.
+      1. ``OTAMAN_ACTIVE_ROUTING`` — current name (set by launcher).
+      2. ``OTAMAN_ACTIVE_ACCOUNT`` — pre-rename otaman legacy.
       3. ``MAESTRO_ACTIVE_ACCOUNT`` — pre-rebrand legacy.
     """
     return (
-        _os.environ.get("OTAMAN_ACTIVE_PROFILE")
+        _os.environ.get("OTAMAN_ACTIVE_ROUTING")
         or _os.environ.get("OTAMAN_ACTIVE_ACCOUNT")
         or _os.environ.get("MAESTRO_ACTIVE_ACCOUNT")
     )
 
 
-def read_expected_profile(start: Path | None = None) -> str | None:
-    """Read expected profile name from .otaman marker.
+def read_expected_routing(start: Path | None = None) -> str | None:
+    """Read expected routing name from .otaman marker.
 
-    Reads both new field name (``expected_profile:``) and legacy field
+    Reads both new field name (``expected_routing:``) and legacy field
     (``expected_account:``); prefers new when both are present.
     """
     marker = find_marker(start)
     if not marker:
         return None
     fields = parse_marker_fields(marker)
-    return fields.get("expected_profile") or fields.get("expected_account")
+    return fields.get("expected_routing") or fields.get("expected_account")
 
