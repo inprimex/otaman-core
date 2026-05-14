@@ -287,10 +287,11 @@ class TestVerification:
 
     def test_signature_tampering_rejected(self, config, keypair, jwks):
         token = _make_token(keypair["private_pem"])
-        # Flip a character in the signature segment
+        # Flip the first signature byte deterministically. Use a char
+        # different from sig[0] so the tamper is real for any fresh key.
         head, payload, sig = token.split(".")
-        tampered_sig = "A" + sig[1:]
-        tampered = f"{head}.{payload}.{tampered_sig}"
+        flip = "B" if sig[0] == "A" else "A"
+        tampered = f"{head}.{payload}.{flip}{sig[1:]}"
         validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
         result = validator.validate(f"Bearer {tampered}")
         assert result.ok is False
@@ -426,3 +427,35 @@ class TestExtractRoles:
 
     def test_null_claim_returns_empty(self):
         assert _extract_roles({ZITADEL_ROLES_CLAIM: None}) == []
+
+    def test_project_scoped_claim_shape(self):
+        """Real Zitadel emits roles under a project-scoped key:
+        urn:zitadel:iam:org:project:<PROJECT_ID>:roles
+        Verified empirically against Zitadel v2.66 (2026-05-15 smoke)."""
+        claims = {
+            "urn:zitadel:iam:org:project:372944870769164291:roles": {
+                "otaman:developer": {"<org-id>": "<org-domain>"},
+                "otaman:viewer": {"<org-id>": "<org-domain>"},
+            },
+        }
+        assert sorted(_extract_roles(claims)) == ["otaman:developer", "otaman:viewer"]
+
+    def test_multiple_project_scoped_claims_unioned(self):
+        """A token may carry roles for multiple projects; union them."""
+        claims = {
+            "urn:zitadel:iam:org:project:111:roles": {"otaman:developer": {"o": "x"}},
+            "urn:zitadel:iam:org:project:222:roles": {"otaman:viewer": {"o": "x"}},
+        }
+        assert sorted(_extract_roles(claims)) == ["otaman:developer", "otaman:viewer"]
+
+    def test_unrelated_urn_claims_ignored(self):
+        claims = {
+            "urn:zitadel:iam:org:project:111:something-else": {"x": 1},
+            "urn:other:prefix:roles": {"y": 2},
+        }
+        assert _extract_roles(claims) == []
+
+    def test_legacy_claim_still_works(self):
+        """Older Zitadel (or future Zitadel reverting) used the bare claim."""
+        claims = {ZITADEL_ROLES_CLAIM: {"otaman:admin": {"o": "x"}}}
+        assert _extract_roles(claims) == ["otaman:admin"]

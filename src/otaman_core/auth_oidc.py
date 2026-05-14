@@ -235,23 +235,39 @@ class _KidNotFound(Exception):
 def _extract_roles(claims: dict[str, Any]) -> list[str]:
     """Extract role keys from Zitadel's project-role claim shape.
 
-    Zitadel emits:
-        "urn:zitadel:iam:org:project:roles": {
-            "otaman:developer": {"<project-id>": "Greenbin Otaman Pilot"},
-            "otaman:approver": {"<project-id>": "Greenbin Otaman Pilot"},
+    Zitadel emits roles under a project-scoped claim that includes the
+    project resource id:
+
+        "urn:zitadel:iam:org:project:<PROJECT_ID>:roles": {
+            "otaman:developer": {"<org-id>": "<org-domain>"},
+            "otaman:viewer":    {"<org-id>": "<org-domain>"},
         }
 
-    Returns the list of role keys. Returns ``[]`` if the claim is absent
-    or malformed (logs at debug). Be defensive: future Zitadel versions
-    may change the structure.
+    Discovered empirically against Zitadel v2.66 (2026-05-15 smoke test
+    on Greenbin pilot dogfood). Older Zitadel versions also recognised
+    the legacy claim name without the project id; we accept both for
+    forward / backward compatibility.
+
+    Multiple project claims may appear in one token (one per project the
+    subject has roles in). Returns the union of role keys across all of
+    them. Returns ``[]`` if no role claim is present or every claim is
+    malformed.
     """
-    raw = claims.get(ZITADEL_ROLES_CLAIM)
-    if raw is None:
-        return []
-    if not isinstance(raw, dict):
-        _log.debug("roles claim is not a dict; ignoring")
-        return []
-    return list(raw.keys())
+    roles: list[str] = []
+    for claim_name, value in claims.items():
+        # Legacy + project-scoped names both start with the same prefix and
+        # end with ':roles'. The middle is empty (legacy) or the project id.
+        if not claim_name.startswith("urn:zitadel:iam:org:project:"):
+            continue
+        if not claim_name.endswith(":roles") and claim_name != ZITADEL_ROLES_CLAIM:
+            continue
+        if not isinstance(value, dict):
+            _log.debug("roles claim %s is not a dict; ignoring", claim_name)
+            continue
+        for role_key in value:
+            if role_key not in roles:
+                roles.append(role_key)
+    return roles
 
 
 def _default_jwks_fetcher(url: str) -> dict[str, Any]:
