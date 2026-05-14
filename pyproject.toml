@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 keyring = ["keyring>=24"]
+oidc = ["pyjwt[crypto]>=2.8"]
 test = ["pytest>=7", "keyring>=24"]
 
 [build-system]
