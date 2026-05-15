@@ -72,10 +72,23 @@ class OIDCConfig:
     leeway: float = 30.0
 
     def effective_jwks_uri(self) -> str:
+        """Where to fetch the JWKS document.
+
+        If ``jwks_uri`` was set explicitly, use it. Otherwise default to
+        Zitadel's actual JWKS path ``<issuer>/oauth/v2/keys`` -- Zitadel
+        is otaman's reference IdP per the integration spec, and this
+        path is what its ``/.well-known/openid-configuration`` advertises.
+        Earlier the default was ``/.well-known/jwks`` which was a
+        misreading of the OIDC spec; that path doesn't exist on Zitadel
+        (returns 404), and the manual-test on 2026-05-15 caught it.
+
+        For non-Zitadel IdPs, set ``jwks_uri`` explicitly. A future
+        improvement is OIDC discovery: fetch ``/.well-known/openid-configuration``
+        and use the ``jwks_uri`` field from that response.
+        """
         if self.jwks_uri:
             return self.jwks_uri
-        # Zitadel's well-known path.
-        return f"{self.issuer.rstrip('/')}/.well-known/jwks"
+        return f"{self.issuer.rstrip('/')}/oauth/v2/keys"
 
 
 @dataclass(frozen=True)

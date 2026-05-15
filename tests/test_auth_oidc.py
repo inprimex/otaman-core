@@ -128,11 +128,11 @@ class TestOIDCConfig:
 
     def test_effective_jwks_uri_from_issuer(self):
         cfg = OIDCConfig(issuer="https://otaman.example.com/auth", audience="y")
-        assert cfg.effective_jwks_uri() == "https://otaman.example.com/auth/.well-known/jwks"
+        assert cfg.effective_jwks_uri() == "https://otaman.example.com/auth/oauth/v2/keys"
 
     def test_strips_trailing_slash_on_issuer(self):
         cfg = OIDCConfig(issuer="https://otaman.example.com/auth/", audience="y")
-        assert cfg.effective_jwks_uri() == "https://otaman.example.com/auth/.well-known/jwks"
+        assert cfg.effective_jwks_uri() == "https://otaman.example.com/auth/oauth/v2/keys"
 
 
 # ---- Happy paths -------------------------------------------------------
