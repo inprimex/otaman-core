@@ -459,3 +459,108 @@ class TestExtractRoles:
         """Older Zitadel (or future Zitadel reverting) used the bare claim."""
         claims = {ZITADEL_ROLES_CLAIM: {"otaman:admin": {"o": "x"}}}
         assert _extract_roles(claims) == ["otaman:admin"]
+
+
+# ---- Security hardening (added 2026-05-15) -----------------------------
+
+
+class TestSecurityHardening:
+    """Algorithm-confusion, leeway, and multi-audience tests.
+
+    Covers security-relevant configuration boundaries that the earlier
+    suite didn't exercise: explicit algorithm enforcement (a textbook
+    attack class), the leeway field, and the multi-audience case allowed
+    by RFC 7519 sec. 4.1.3.
+    """
+
+    def test_hs256_token_rejected_when_only_rs256_allowed(self, config, keypair, jwks):
+        """HS256-signed token must NOT be accepted by an RS256-only validator.
+
+        Algorithm-confusion attacks (e.g. signing with the public key's
+        bytes as a HMAC secret) are blocked at the algorithm-allowlist layer.
+        """
+        token = jwt.encode(
+            {
+                "iss": config.issuer,
+                "aud": config.audience,
+                "sub": "u",
+                "exp": int(time.time() + 60),
+            },
+            "any-symmetric-secret",
+            algorithm="HS256",
+            headers={"kid": "test-key-1"},
+        )
+        validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is False
+        assert "alg" in result.error.lower() or "algorithm" in result.error.lower()
+
+    def test_alg_none_rejected(self, config, jwks):
+        """Token with alg=none must be rejected. PyJWT requires opt-in
+        to permit none; this guards against a config drift that allows it."""
+        token = jwt.encode(
+            {
+                "iss": config.issuer,
+                "aud": config.audience,
+                "sub": "u",
+                "exp": int(time.time() + 60),
+            },
+            "",
+            algorithm="none",
+            headers={"kid": "test-key-1"},
+        )
+        validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is False
+
+    def test_leeway_allows_recently_expired_token(self, keypair, jwks):
+        """Token expired by less than leeway seconds must pass.
+
+        Accommodates clock skew between issuer and validator.
+        """
+        cfg = OIDCConfig(
+            issuer="https://otaman.example.com/auth",
+            audience="otaman-runner",
+            leeway=30.0,
+        )
+        token = _make_token(keypair["private_pem"], exp_in=-10)
+        validator = OIDCValidator(cfg, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is True, f"unexpected error: {result.error}"
+
+    def test_leeway_does_not_extend_beyond_window(self, keypair, jwks):
+        """Token expired by more than leeway seconds must still fail."""
+        cfg = OIDCConfig(
+            issuer="https://otaman.example.com/auth",
+            audience="otaman-runner",
+            leeway=30.0,
+        )
+        token = _make_token(keypair["private_pem"], exp_in=-100)
+        validator = OIDCValidator(cfg, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is False
+        assert "expir" in result.error.lower()
+
+    def test_aud_list_containing_expected_accepted(self, config, keypair, jwks):
+        """RFC 7519 sec. 4.1.3: aud may be str OR list.
+
+        Token with aud=[a, b] where 'a' matches config.audience must pass.
+        """
+        token = _make_token(
+            keypair["private_pem"],
+            aud=[config.audience, "some-other-service"],
+        )
+        validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is True, f"unexpected error: {result.error}"
+
+    def test_aud_list_not_containing_expected_rejected(self, config, keypair, jwks):
+        """Multi-aud token where none of the audiences match config must fail."""
+        token = _make_token(
+            keypair["private_pem"],
+            aud=["service-a", "service-b"],
+        )
+        validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
+        result = validator.validate(f"Bearer {token}")
+        assert result.ok is False
+        assert "audience" in result.error.lower() or "aud" in result.error.lower()
