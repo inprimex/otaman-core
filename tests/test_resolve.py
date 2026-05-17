@@ -13,6 +13,7 @@ from otaman_core._resolve import (
     find_marker,
     parse_marker_fields,
     read_expected_account,
+    resolve_worktree_main,
 )
 
 
@@ -381,3 +382,160 @@ class TestFindMaestroRootWithExtendedMarker:
             "maestro_root: ../my-maestro\nexpected_account: riseapps\n"
         )
         assert find_maestro_root(repo) == maestro.resolve()
+
+
+# ---------------------------------------------------------------------------
+# Worktree resolution — added 2026-05-14 (Spec C: Claude Code interop)
+# ---------------------------------------------------------------------------
+#
+# Linked git worktrees have a `.git` *file* (not directory) at the
+# worktree's root, containing `gitdir: <main>/.git/worktrees/<name>`.
+# `resolve_worktree_main` walks up from a path and returns the main
+# repo's working tree if a worktree marker is found, else None.
+
+
+class TestWorktreeResolution:
+    """Resolve a worktree path back to the main repo's working tree."""
+
+    @pytest.fixture
+    def repo_with_worktree(self, tmp_path):
+        """Set up a main repo and a sibling linked worktree.
+
+        Layout:
+            tmp_path/
+              auth-service/                 <- main repo
+                .git/
+                  worktrees/
+                    feature-x/
+              auth-service-feature-x/       <- linked worktree
+                .git                         <- file pointing into main
+                src/
+        """
+        main = tmp_path / "auth-service"
+        main.mkdir()
+        git_dir = main / ".git"
+        git_dir.mkdir()
+        worktrees_dir = git_dir / "worktrees" / "feature-x"
+        worktrees_dir.mkdir(parents=True)
+
+        worktree = tmp_path / "auth-service-feature-x"
+        worktree.mkdir()
+        # gitdir is absolute — git itself writes the absolute form.
+        (worktree / ".git").write_text(
+            f"gitdir: {worktrees_dir}\n", encoding="utf-8"
+        )
+        (worktree / "src").mkdir()
+
+        return {"main": main, "worktree": worktree, "gitdir": worktrees_dir}
+
+    def test_worktree_root_resolves_to_main(self, repo_with_worktree):
+        result = resolve_worktree_main(repo_with_worktree["worktree"])
+        assert result == repo_with_worktree["main"].resolve()
+
+    def test_worktree_subdir_resolves_to_main(self, repo_with_worktree):
+        """CWD in src/ inside a worktree should still resolve to main."""
+        result = resolve_worktree_main(repo_with_worktree["worktree"] / "src")
+        assert result == repo_with_worktree["main"].resolve()
+
+    def test_main_repo_returns_none(self, repo_with_worktree):
+        """Inside the main repo itself — not a worktree, return None."""
+        assert resolve_worktree_main(repo_with_worktree["main"]) is None
+
+    def test_main_repo_subdir_returns_none(self, repo_with_worktree):
+        """Subdir of main repo is still the main repo, not a worktree."""
+        sub = repo_with_worktree["main"] / "src"
+        sub.mkdir()
+        assert resolve_worktree_main(sub) is None
+
+    def test_no_git_anywhere_returns_none(self, tmp_path):
+        """Path with no .git in any ancestor → None."""
+        d = tmp_path / "orphan"
+        d.mkdir()
+        assert resolve_worktree_main(d) is None
+
+    def test_malformed_git_file_returns_none(self, tmp_path):
+        """A .git file without `gitdir:` line should fail safely, not crash."""
+        worktree = tmp_path / "broken-worktree"
+        worktree.mkdir()
+        (worktree / ".git").write_text("garbage\nno gitdir here\n", encoding="utf-8")
+        assert resolve_worktree_main(worktree) is None
+
+    def test_empty_git_file_returns_none(self, tmp_path):
+        worktree = tmp_path / "empty-worktree"
+        worktree.mkdir()
+        (worktree / ".git").write_text("", encoding="utf-8")
+        assert resolve_worktree_main(worktree) is None
+
+    def test_gitdir_pointing_outside_worktrees_returns_none(self, tmp_path):
+        """gitdir not in the expected `.git/worktrees/<name>` shape → None."""
+        worktree = tmp_path / "weird-worktree"
+        worktree.mkdir()
+        bogus = tmp_path / "somewhere-else"
+        bogus.mkdir()
+        (worktree / ".git").write_text(f"gitdir: {bogus}\n", encoding="utf-8")
+        assert resolve_worktree_main(worktree) is None
+
+    def test_relative_gitdir_resolves(self, tmp_path):
+        """gitdir as a relative path — git writes absolute, but be defensive."""
+        main = tmp_path / "auth-service"
+        main.mkdir()
+        worktrees_dir = main / ".git" / "worktrees" / "feature-y"
+        worktrees_dir.mkdir(parents=True)
+
+        worktree = tmp_path / "auth-service-feature-y"
+        worktree.mkdir()
+        # Relative gitdir pointing back to main.
+        rel = "../auth-service/.git/worktrees/feature-y"
+        (worktree / ".git").write_text(f"gitdir: {rel}\n", encoding="utf-8")
+
+        assert resolve_worktree_main(worktree) == main.resolve()
+
+    def test_gitdir_with_extra_whitespace(self, tmp_path):
+        """`gitdir:   <path>   ` with surrounding whitespace should still parse."""
+        main = tmp_path / "auth-service"
+        main.mkdir()
+        worktrees_dir = main / ".git" / "worktrees" / "feat"
+        worktrees_dir.mkdir(parents=True)
+        worktree = tmp_path / "auth-service-feat"
+        worktree.mkdir()
+        (worktree / ".git").write_text(
+            f"   gitdir:    {worktrees_dir}   \n", encoding="utf-8"
+        )
+        assert resolve_worktree_main(worktree) == main.resolve()
+
+
+class TestFindMaestroRootInWorktree:
+    """find_maestro_root retries via worktree main when direct walk fails."""
+
+    @pytest.fixture
+    def worktree_workspace(self, tmp_path):
+        """Maestro folder + a managed repo with a .maestro marker + a worktree of that repo."""
+        maestro = tmp_path / "my-maestro"
+        maestro.mkdir()
+        (maestro / "platform.yaml").write_text("project: test\n")
+        (maestro / ".agents").mkdir()
+
+        main = tmp_path / "auth-service"
+        main.mkdir()
+        (main / ".git").mkdir()
+        (main / ".git" / "worktrees" / "feat-x").mkdir(parents=True)
+        (main / ".maestro").write_text("../my-maestro\n", encoding="utf-8")
+
+        worktree = tmp_path / "auth-service-feat-x"
+        worktree.mkdir()
+        (worktree / ".git").write_text(
+            f"gitdir: {main / '.git' / 'worktrees' / 'feat-x'}\n",
+            encoding="utf-8",
+        )
+        return {"maestro": maestro, "main": main, "worktree": worktree}
+
+    def test_worktree_resolves_via_main_repo_marker(self, worktree_workspace):
+        """From inside a worktree, find_maestro_root retries via the main repo's .maestro marker."""
+        result = find_maestro_root(worktree_workspace["worktree"])
+        assert result == worktree_workspace["maestro"].resolve()
+
+    def test_worktree_subdir_resolves_via_main_repo_marker(self, worktree_workspace):
+        sub = worktree_workspace["worktree"] / "src" / "deep"
+        sub.mkdir(parents=True)
+        result = find_maestro_root(sub)
+        assert result == worktree_workspace["maestro"].resolve()
