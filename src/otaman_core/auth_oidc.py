@@ -286,10 +286,23 @@ def _extract_roles(claims: dict[str, Any]) -> list[str]:
 def _default_jwks_fetcher(url: str) -> dict[str, Any]:
     """Fetch a JWKS document via HTTPS.
 
+    Sets an explicit User-Agent — Cloudflare's Bot Fight Mode (and similar
+    TLS-terminating proxies) block urllib's default ``Python-urllib/3.x``
+    with 403. Any deployment fronting the IdP with a CDN/WAF hits this
+    on every token validation. Caught 2026-05-19 during otaman-bridge's
+    Cloudflare Tunnel migration.
+
     Raises OIDCError on any network / parse failure.
     """
+    req = urllib.request.Request(
+        url, method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "otaman-core-oidc/1.0",
+        },
+    )
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             body = resp.read()
     except (urllib.error.URLError, TimeoutError) as exc:
         raise OIDCError(f"JWKS fetch failed for {url}: {exc}") from exc
