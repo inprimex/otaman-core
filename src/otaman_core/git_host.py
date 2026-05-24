@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Git host integration — provider detection + PAT storage + validation.
 
-Phase 1: enough primitives that the rest of maestro knows *which* git
+Phase 1: enough primitives that the rest of otaman knows *which* git
 host a project is on and has a PAT it can use. No API beyond a whoami/
 validate call here — the read (PR metadata) and write (post observer
 comments) paths land in later phases.
@@ -136,7 +136,7 @@ def _classify(host: str, path: str, raw_url: str) -> RemoteInfo:
     else:
         # Self-hosted instance. Host alone doesn't identify the
         # flavour; we fall back to "unknown" and let the user tell
-        # us via ``maestro git-host add --provider ...``.
+        # us via ``otaman git-host add --provider ...``.
         provider = "unknown"
 
     parts = path.split("/", 1)
@@ -166,10 +166,10 @@ def detect_remote_for_repo(repo_dir: Path) -> RemoteInfo | None:
     return parse_remote_url(result.stdout.strip())
 
 
-def detect_remotes_for_maestro(maestro_root: Path) -> list[tuple[str, RemoteInfo | None]]:
+def detect_remotes_for_maestro(maestro_root: Path) -> list[tuple[str, RemoteInfo | None]]:  # legacy: renamed detect_remotes_for_otaman at 1.0
     """Walk repos listed in platform.yaml; return ``(repo_name, RemoteInfo|None)``.
 
-    Used by ``maestro doctor`` to summarize "what git hosts is this
+    Used by ``otaman doctor`` to summarize "what git hosts is this
     project actually hooked up to?" in one glance.
     """
     import yaml
@@ -284,7 +284,7 @@ def validate_token(provider: Provider, host: str, token: str) -> ValidationResul
     """Call the provider's whoami/me endpoint with the PAT.
 
     Intentionally minimal — just proves "this token talks to this API"
-    so `maestro doctor` can flag expired / revoked tokens. Each
+    so `otaman doctor` can flag expired / revoked tokens. Each
     provider has its own endpoint shape, so we branch here rather
     than force a common adapter that would only paper over the
     differences.
@@ -320,7 +320,7 @@ def _validate_github(host: str, token: str) -> ValidationResult:
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
-                "User-Agent": "maestro-plugin",
+                "User-Agent": "otaman-plugin",
             },
         )
     except RuntimeError as e:
@@ -342,7 +342,7 @@ def _validate_gitlab(host: str, token: str) -> ValidationResult:
     try:
         status, body, _headers = _do_get(
             f"{base}/api/v4/user",
-            headers={"PRIVATE-TOKEN": token, "User-Agent": "maestro-plugin"},
+            headers={"PRIVATE-TOKEN": token, "User-Agent": "otaman-plugin"},
         )
     except RuntimeError as e:
         return ValidationResult(ok=False, error=str(e))
@@ -361,7 +361,7 @@ def _validate_bitbucket(token: str) -> ValidationResult:
             "https://api.bitbucket.org/2.0/user",
             headers={
                 "Authorization": f"Bearer {token}",
-                "User-Agent": "maestro-plugin",
+                "User-Agent": "otaman-plugin",
             },
         )
     except RuntimeError as e:
@@ -384,7 +384,7 @@ def _validate_azure(host: str, token: str) -> ValidationResult:
             f"https://{host}/_apis/connectionData?api-version=7.1",
             headers={
                 "Authorization": f"Basic {auth}",
-                "User-Agent": "maestro-plugin",
+                "User-Agent": "otaman-plugin",
             },
         )
     except RuntimeError as e:
@@ -414,7 +414,7 @@ def resolve_and_validate(
         return ValidationResult(
             ok=False,
             error="token not found in configured sources "
-                  "(env / .maestro/secrets.env / keychain)",
+                  "(env / .otaman/secrets.env / keychain)",
         )
     return validate_token(cfg.provider, cfg.host, token)
 
@@ -510,7 +510,7 @@ def get_adapter(
     if not token:
         raise GitHostError(
             "git-host token could not be resolved from configured "
-            "sources (env / .maestro/secrets.env / keychain).",
+            "sources (env / .otaman/secrets.env / keychain).",
         )
 
     # Lazy imports so the base module stays provider-agnostic and a

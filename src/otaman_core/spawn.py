@@ -66,7 +66,7 @@ class SpawnRequest:
 
     agent: str                            # ownership identity, e.g. "backend-agent"
     repo: str                             # owned repo name (from platform.yaml) or absolute path
-    project_root: Path                    # absolute path to the maestro folder
+    project_root: Path                    # absolute path to the otaman workspace folder
     mode: SpawnMode = SpawnMode.INTERACTIVE
     harness: str = "claude-code"          # adapter identifier (ADR-003); v0 only "claude-code"
     backend: BackendConfig | None = None  # None = runner picks the platform default

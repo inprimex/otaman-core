@@ -1,8 +1,8 @@
-"""Shared maestro root resolution for all Python scripts.
+"""Shared otaman workspace root resolution for all Python scripts.
 
 Resolution chain (first match wins):
-1. .maestro marker file in start dir or ancestors (contains relative path to maestro folder)
-2. MAESTRO_ROOT environment variable
+1. .otaman (preferred) or .maestro (legacy: removed at 1.0) marker file in start dir or ancestors
+2. OTAMAN_ROOT (preferred) or MAESTRO_ROOT (legacy: removed at 1.0) environment variable
 3. Walk-up fallback: look for platform.yaml or .agents/ (legacy/monorepo compat)
 
 Also exposes expand_config_dir() for per-shell tilde / env-var expansion of
@@ -12,6 +12,7 @@ account config_dir paths declared in launch-settings.yaml.
 from __future__ import annotations
 
 import os
+import warnings as _warnings
 from pathlib import Path
 
 # Shells that resolve paths on a different host (remote / different userspace)
@@ -22,25 +23,76 @@ _DEFERRED_SHELLS = frozenset({"wsl", "ssh"})
 # Shells that speak native Windows paths.
 _WINDOWS_SHELLS = frozenset({"powershell", "pwsh", "cmd"})
 
-# Known fields in .maestro marker files. Unknown `key:` lines fall through to
+# Known fields in marker files. Unknown `key:` lines fall through to
 # bare-path handling, which preserves support for Windows absolute paths
-# (e.g. ``C:/work/my-maestro``) that happen to contain a colon.
-_KNOWN_MARKER_FIELDS = frozenset({"maestro_root", "expected_account"})
+# (e.g. ``C:/work/my-otaman``) that happen to contain a colon.
+_KNOWN_MARKER_FIELDS = frozenset({"otaman_root", "maestro_root", "expected_account"})  # legacy: maestro_root retained for one minor release
+
+# Keys emitted at most once per interpreter process, keyed by a unique channel string.
+_warned: set[str] = set()
 
 
-def find_maestro_root(start: Path | None = None) -> Path | None:
-    """Find the maestro root directory.
+def _warn_once(key: str, message: str, category: type = DeprecationWarning) -> None:
+    """Emit *category* warning with *message* at most once per process per *key*."""
+    if key not in _warned:
+        _warned.add(key)
+        _warnings.warn(message, category, stacklevel=3)
+
+
+def _has_explicit_maestro_root(marker_path: Path) -> bool:
+    """Return True if marker file has an explicit ``maestro_root:`` key line.
+
+    Distinguishes intentional ``maestro_root: <path>`` key usage from bare-path
+    lines (which are silently mapped to the ``maestro_root`` key internally).
+    """
+    try:
+        text = marker_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(line.strip().startswith("maestro_root:") for line in text.splitlines())
+
+
+def _safe_marker_path(rel: str, marker: Path) -> bool:
+    """Return False and warn if *rel* from *marker* is unsafe.
+
+    Rejects paths with more than 3 ``..`` components (traversal bound) or that
+    resolve to a location outside the user's home directory.
+    """
+    dotdot_count = sum(1 for p in Path(rel).parts if p == "..")
+    if dotdot_count > 3:
+        _warn_once(
+            f"traversal:{marker}:{rel}",
+            f"Marker at {marker} contains path with {dotdot_count} '..' levels: {rel!r}; rejected for security",
+            UserWarning,
+        )
+        return False
+    candidate = (marker.parent / rel).resolve()
+    home = Path.home()
+    try:
+        candidate.relative_to(home)
+    except ValueError:
+        _warn_once(
+            f"outside-home:{marker}:{rel}",
+            f"Marker at {marker} resolves outside $HOME ({home}): {candidate}; rejected for security",
+            UserWarning,
+        )
+        return False
+    return True
+
+
+def find_maestro_root(start: Path | None = None) -> Path | None:  # legacy: renamed find_otaman_root at 1.0
+    """Find the otaman workspace root directory.
 
     Tries the standard resolution chain (marker file → OTAMAN_ROOT/
     MAESTRO_ROOT env → walk-up) from the given path. If that fails and
     the path is inside a linked git worktree, retries from the worktree's
-    main repo — where ``.otaman`` / ``.maestro`` markers actually live.
+    main repo — where ``.otaman`` / ``.maestro`` (legacy: removed at 1.0) markers live.
 
     Args:
         start: Directory to start searching from. Defaults to cwd.
 
     Returns:
-        Resolved absolute path to the maestro root, or None if not found.
+        Resolved absolute path to the otaman root, or None if not found.
     """
     origin = (start or Path.cwd()).resolve()
 
@@ -57,34 +109,68 @@ def find_maestro_root(start: Path | None = None) -> Path | None:
     return None
 
 
-def _find_maestro_root_from(origin: Path) -> Path | None:
+def _find_maestro_root_from(origin: Path) -> Path | None:  # legacy: renamed at 1.0
     """Run the marker → env → walk-up chain starting from ``origin``.
 
     Internal helper for :func:`find_maestro_root`. Returns the resolved
-    maestro root or ``None`` on no match.
+    otaman root or ``None`` on no match.
     """
-    # 1. .otaman (preferred) or .maestro (legacy) marker file — walk up
+    # 1. .otaman (preferred) or .maestro (legacy: removed at 1.0) marker file — walk up
     current = origin
     while current != current.parent:
         marker = current / ".otaman"
         if not marker.is_file():
-            marker = current / ".maestro"
+            legacy_marker = current / ".maestro"  # legacy: .maestro fallback removed at 1.0
+            if legacy_marker.is_file():
+                _warn_once(
+                    f"legacy-marker:{legacy_marker}",
+                    f"Found legacy '.maestro' marker at {legacy_marker}; "  # legacy: deprecation warning for .maestro marker
+                    "rename to '.otaman' before otaman-core 1.0",
+                )
+                marker = legacy_marker
         if marker.is_file():
-            rel = parse_marker_fields(marker).get("maestro_root")
+            fields = parse_marker_fields(marker)
+            rel = fields.get("otaman_root") or fields.get("maestro_root")  # legacy: maestro_root fallback
             if rel:
+                if "otaman_root" not in fields and _has_explicit_maestro_root(marker):
+                    _warn_once(
+                        f"legacy-field:{marker}",
+                        f"Marker at {marker} uses legacy 'maestro_root:' field; "  # legacy: maestro_root field deprecated
+                        "rename to 'otaman_root:' before otaman-core 1.0",
+                    )
+                if not _safe_marker_path(rel, marker):
+                    current = current.parent
+                    continue
                 candidate = (current / rel).resolve()
                 if (candidate / "platform.yaml").exists() or (candidate / ".agents").is_dir():
                     return candidate
         current = current.parent
 
-    # 2. OTAMAN_ROOT (preferred) or MAESTRO_ROOT (legacy) env variable
-    env_root = os.environ.get("OTAMAN_ROOT", os.environ.get("MAESTRO_ROOT", "")).strip()
+    # 2. OTAMAN_ROOT (preferred) or MAESTRO_ROOT (legacy: removed at 1.0) env variable
+    otaman_env = os.environ.get("OTAMAN_ROOT", "").strip()
+    maestro_env = os.environ.get("MAESTRO_ROOT", "").strip()  # legacy: MAESTRO_ROOT removed at 1.0
+    if otaman_env and maestro_env:
+        _warn_once(
+            "maestro-root-ignored",  # legacy: internal key for MAESTRO_ROOT-ignored warning
+            "MAESTRO_ROOT is set but OTAMAN_ROOT takes precedence; "  # legacy: warning for ignored MAESTRO_ROOT
+            "MAESTRO_ROOT will be removed in otaman-core 1.0",
+        )
+        env_root = otaman_env
+    elif maestro_env:
+        _warn_once(
+            "maestro-root-deprecated",  # legacy: internal key for MAESTRO_ROOT-deprecated warning
+            "MAESTRO_ROOT is deprecated; set OTAMAN_ROOT instead. "  # legacy: warning for deprecated MAESTRO_ROOT
+            "Will be removed in otaman-core 1.0",
+        )
+        env_root = maestro_env
+    else:
+        env_root = otaman_env
     if env_root:
         p = Path(env_root).resolve()
         if (p / "platform.yaml").exists() or (p / ".agents").is_dir():
             return p
 
-    # 3. Walk-up fallback (legacy layout: maestro artifacts in a parent directory)
+    # 3. Walk-up fallback (legacy layout: otaman artifacts in a parent directory)
     current = origin
     while current != current.parent:
         if (current / "platform.yaml").exists() or (current / ".agents").is_dir():
@@ -113,9 +199,9 @@ def resolve_worktree_main(path: Path | None = None) -> Path | None:
     main repo itself, or not in any repo). Defensive against malformed
     ``.git`` files: parse failures return ``None`` rather than raising.
 
-    Used by :func:`find_maestro_root` so that hooks fired from inside a
-    linked worktree can still locate the maestro folder via the main
-    repo's ``.otaman`` / ``.maestro`` marker.
+    Used by :func:`find_maestro_root` so that hooks fired from inside a  # legacy: find_maestro_root renamed at 1.0
+    linked worktree can still locate the otaman folder via the main
+    repo's ``.otaman`` / ``.maestro`` marker.  # legacy: .maestro fallback removed at 1.0
     """
     try:
         origin = (path or Path.cwd()).resolve()
@@ -163,19 +249,21 @@ def resolve_worktree_main(path: Path | None = None) -> Path | None:
 
 
 def parse_marker_fields(marker_path: Path) -> dict[str, str]:
-    """Parse a ``.maestro`` marker file into a dict of fields.
+    """Parse a marker file into a dict of fields.
 
     Accepts two formats, chosen line-by-line:
 
     - **Legacy** — a single bare line holding the relative path to the
-      maestro folder (e.g. ``../my-maestro``). Becomes ``maestro_root``.
+      otaman folder (e.g. ``../my-otaman``). Becomes ``maestro_root``
+      (legacy: field renamed to ``otaman_root`` at 1.0).
     - **Extended** — ``key: value`` lines for known fields, plus an
-      optional bare path line. Current known fields: ``maestro_root``,
-      ``expected_account``.
+      optional bare path line. Current known fields: ``otaman_root``,
+      ``maestro_root`` (legacy: renamed at 1.0), ``expected_account``.
 
     Unknown ``key: value`` lines are ignored so that Windows absolute
     paths containing a colon (``C:/foo``) continue to parse as bare
-    ``maestro_root`` values. Comment (``#``) and blank lines are skipped.
+    ``otaman_root`` / ``maestro_root`` values. Comment (``#``) and blank
+    lines are skipped.
     """
     fields: dict[str, str] = {}
     try:
@@ -193,29 +281,34 @@ def parse_marker_fields(marker_path: Path) -> dict[str, str]:
             if key in _KNOWN_MARKER_FIELDS:
                 fields.setdefault(key, value)
                 continue
-        # Bare line → treat as maestro_root if not set
-        fields.setdefault("maestro_root", line)
+        # Bare line → treat as maestro_root if not set (legacy: bare path mapping removed at 1.0)
+        fields.setdefault("maestro_root", line)  # legacy: bare path stored as maestro_root for compat
     return fields
 
 
 def find_marker(start: Path | None = None) -> Path | None:
-    """Walk up from ``start`` (default: cwd) looking for a ``.maestro`` marker.
+    """Walk up from ``start`` (default: cwd) looking for an Otaman marker file.
 
-    Returns the marker path, or None if no marker is found on the way up.
+    Prefers ``.otaman``; falls back to ``.maestro`` (legacy: removed at 1.0).
+    Returns the marker path, or None if not found.
     """
     origin = (start or Path.cwd()).resolve()
     current = origin
     while current != current.parent:
-        marker = current / ".maestro"
+        marker = current / ".otaman"
         if marker.is_file():
             return marker
+        legacy = current / ".maestro"  # legacy: .maestro fallback removed at 1.0
+        if legacy.is_file():
+            return legacy
         current = current.parent
     return None
 
 
 def read_expected_account(start: Path | None = None) -> str | None:
-    """Return the ``expected_account`` field from the nearest ``.maestro`` marker.
+    """Return the ``expected_account`` field from the nearest Otaman marker.
 
+    Checks ``.otaman`` (preferred) or ``.maestro`` (legacy: removed at 1.0).
     Returns None if no marker is found or the field is absent/empty.
     """
     marker = find_marker(start)
@@ -283,7 +376,7 @@ def expand_config_dir(config_dir: str, shell: str, *, home: str | None = None) -
 # platform.yaml's existing profiles: block (repo-subset bundles), so
 # settled on "routing". Legacy "account" name kept as fallback for one
 # release window; sunset planned for otaman-core 1.0 alongside the
-# .maestro marker dual-recognition.
+# .maestro marker dual-recognition.  # legacy: .maestro dual-recognition removed at 1.0
 
 import os as _os
 
@@ -294,17 +387,17 @@ def active_routing_env() -> str | None:
     Resolution order (most preferred first):
       1. ``OTAMAN_ACTIVE_ROUTING`` — current name (set by launcher).
       2. ``OTAMAN_ACTIVE_ACCOUNT`` — pre-rename otaman legacy.
-      3. ``MAESTRO_ACTIVE_ACCOUNT`` — pre-rebrand legacy.
+      3. ``MAESTRO_ACTIVE_ACCOUNT`` — pre-rebrand legacy.  # legacy: MAESTRO_ACTIVE_ACCOUNT removed at 1.0
     """
     return (
         _os.environ.get("OTAMAN_ACTIVE_ROUTING")
         or _os.environ.get("OTAMAN_ACTIVE_ACCOUNT")
-        or _os.environ.get("MAESTRO_ACTIVE_ACCOUNT")
+        or _os.environ.get("MAESTRO_ACTIVE_ACCOUNT")  # legacy: MAESTRO_ACTIVE_ACCOUNT removed at 1.0
     )
 
 
 def read_expected_routing(start: Path | None = None) -> str | None:
-    """Read expected routing name from .otaman marker.
+    """Read expected routing name from Otaman marker.
 
     Reads both new field name (``expected_routing:``) and legacy field
     (``expected_account:``); prefers new when both are present.
@@ -314,4 +407,3 @@ def read_expected_routing(start: Path | None = None) -> str | None:
         return None
     fields = parse_marker_fields(marker)
     return fields.get("expected_routing") or fields.get("expected_account")
-

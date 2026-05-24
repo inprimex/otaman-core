@@ -1,10 +1,14 @@
 """Tests for scripts/_resolve.py — maestro root resolution."""
 
 import os
+import pathlib
 import textwrap
+import warnings
 from pathlib import Path
 
 import pytest
+
+import otaman_core._resolve as _resolve_mod
 
 # _resolve is provided by the otaman_core package (pyproject pythonpath = ["src"])
 from otaman_core._resolve import (
@@ -539,3 +543,257 @@ class TestFindMaestroRootInWorktree:
         sub.mkdir(parents=True)
         result = find_maestro_root(sub)
         assert result == worktree_workspace["maestro"].resolve()
+
+
+# ---------------------------------------------------------------------------
+# Deprecation warnings — added for finish-maestro-to-otaman-migration
+# ---------------------------------------------------------------------------
+
+
+class TestDeprecationWarnings:
+    """Verify once-per-process DeprecationWarnings on legacy fallback paths."""
+
+    @pytest.fixture(autouse=True)
+    def reset_warned(self):
+        _resolve_mod._warned.clear()
+        yield
+        _resolve_mod._warned.clear()
+
+    def test_maestro_marker_emits_deprecation(self, workspace):
+        repo = workspace["repo"]
+        (repo / ".maestro").write_text("../my-maestro\n")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            find_maestro_root(repo)
+        msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any(".maestro" in m and "rename to '.otaman'" in m for m in msgs)
+
+    def test_otaman_marker_no_maestro_deprecation(self, workspace):
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".otaman").write_text("../my-maestro\n")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result == maestro.resolve()
+        dep = [x for x in w if issubclass(x.category, DeprecationWarning) and ".maestro" in str(x.message)]
+        assert not dep, f"Unexpected deprecation for .otaman marker: {[str(x.message) for x in dep]}"
+
+    def test_maestro_root_env_emits_deprecation(self, workspace, monkeypatch):
+        maestro = workspace["maestro"]
+        monkeypatch.setenv("MAESTRO_ROOT", str(maestro))
+        monkeypatch.delenv("OTAMAN_ROOT", raising=False)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            find_maestro_root(workspace["repo"])
+        msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("MAESTRO_ROOT is deprecated" in m for m in msgs)
+
+    def test_otaman_root_env_no_deprecation(self, workspace, monkeypatch):
+        maestro = workspace["maestro"]
+        monkeypatch.setenv("OTAMAN_ROOT", str(maestro))
+        monkeypatch.delenv("MAESTRO_ROOT", raising=False)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = find_maestro_root(workspace["repo"])
+        assert result == maestro.resolve()
+        dep = [x for x in w if issubclass(x.category, DeprecationWarning) and "MAESTRO_ROOT" in str(x.message)]
+        assert not dep, f"Unexpected MAESTRO_ROOT deprecation: {[str(x.message) for x in dep]}"
+
+    def test_both_env_vars_warns_maestro_ignored(self, workspace, monkeypatch):
+        maestro = workspace["maestro"]
+        monkeypatch.setenv("OTAMAN_ROOT", str(maestro))
+        monkeypatch.setenv("MAESTRO_ROOT", "/some/irrelevant/path")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = find_maestro_root(workspace["repo"])
+        assert result == maestro.resolve()
+        msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("OTAMAN_ROOT takes precedence" in m for m in msgs)
+
+    def test_explicit_maestro_root_field_emits_deprecation(self, workspace):
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".otaman").write_text("maestro_root: ../my-maestro\n")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result == maestro.resolve()
+        msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
+        assert any("maestro_root:" in m and "rename to 'otaman_root:'" in m for m in msgs)
+
+    def test_bare_path_in_otaman_no_field_deprecation(self, workspace):
+        """Bare path in .otaman marker does not trigger the field-rename warning."""
+        repo = workspace["repo"]
+        (repo / ".otaman").write_text("../my-maestro\n")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            find_maestro_root(repo)
+        dep = [x for x in w if issubclass(x.category, DeprecationWarning) and "maestro_root:" in str(x.message)]
+        assert not dep
+
+    def test_warning_emitted_once_per_process(self, workspace, monkeypatch):
+        """Same legacy marker path triggers deprecation at most once per process."""
+        repo = workspace["repo"]
+        monkeypatch.delenv("MAESTRO_ROOT", raising=False)
+        monkeypatch.delenv("OTAMAN_ROOT", raising=False)
+        (repo / ".maestro").write_text("../my-maestro\n")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            find_maestro_root(repo)
+            find_maestro_root(repo)  # second call — key already in _warned
+
+        maestro_warns = [
+            x for x in w
+            if issubclass(x.category, DeprecationWarning) and ".maestro" in str(x.message)
+        ]
+        assert len(maestro_warns) == 1, f"Expected 1 warning, got {len(maestro_warns)}"
+
+
+# ---------------------------------------------------------------------------
+# Path-traversal bounds — added for finish-maestro-to-otaman-migration (B-7)
+# ---------------------------------------------------------------------------
+
+
+class TestPathTraversalBound:
+    """Verify rejection of unsafe relative paths in marker files."""
+
+    @pytest.fixture(autouse=True)
+    def reset_warned(self):
+        _resolve_mod._warned.clear()
+        yield
+        _resolve_mod._warned.clear()
+
+    def test_excessive_dotdot_rejected(self, tmp_path):
+        """Paths with >3 '..' levels are rejected and return None."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".otaman").write_text("../../../../../../../../etc\n")
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result is None
+
+    def test_excessive_dotdot_emits_user_warning(self, tmp_path):
+        """Traversal rejection emits a UserWarning naming the marker path."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".otaman").write_text("../../../../../../../../etc\n")
+        with pytest.warns(UserWarning, match="rejected for security"):
+            find_maestro_root(repo)
+
+    def test_safe_dotdot_accepted(self, workspace):
+        """Paths with ≤3 '..' levels are not rejected by the traversal check."""
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".otaman").write_text("../my-maestro\n")
+        assert find_maestro_root(repo) == maestro.resolve()
+
+    def test_three_dotdot_boundary(self, tmp_path):
+        """Exactly 3 '..' levels is allowed (boundary: >3 is the threshold)."""
+        # Build: tmp_path/a/b/c/repo  →  marker: ../../../workspace
+        # resolved candidate: tmp_path/workspace (3 '..' from tmp_path/a/b/c/repo)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "platform.yaml").write_text("project: test\n")
+        repo = tmp_path / "a" / "b" / "c" / "repo"
+        repo.mkdir(parents=True)
+        (repo / ".otaman").write_text("../../../../workspace\n")  # 4 levels — rejected
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result is None  # 4 > 3, rejected
+
+    def test_outside_home_rejected(self, tmp_path, monkeypatch):
+        """Marker resolving outside $HOME is rejected."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: fake_home))
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "platform.yaml").write_text("project: test\n")
+
+        repo = fake_home / "repo"
+        repo.mkdir()
+        # ../../outside: from fake_home/repo → tmp_path/outside (outside fake_home)
+        (repo / ".otaman").write_text("../../outside\n")
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result is None
+
+    def test_outside_home_emits_security_warning(self, tmp_path, monkeypatch):
+        """Marker resolving outside $HOME emits a UserWarning."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: fake_home))
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "platform.yaml").write_text("project: test\n")
+
+        repo = fake_home / "repo"
+        repo.mkdir()
+        (repo / ".otaman").write_text("../../outside\n")
+
+        with pytest.warns(UserWarning, match="outside.*HOME"):
+            find_maestro_root(repo)
+
+    def test_inside_home_accepted(self, workspace):
+        """Marker that resolves inside $HOME (the patched base temp) is accepted."""
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".otaman").write_text("../my-maestro\n")
+        assert find_maestro_root(repo) == maestro.resolve()
+
+
+# ---------------------------------------------------------------------------
+# Sunset behavior matrix — added for finish-maestro-to-otaman-migration
+# ---------------------------------------------------------------------------
+
+
+class TestSunsetBehaviorMatrix:
+    """Pre-1.0 behavior: legacy fallbacks are honored with DeprecationWarning."""
+
+    @pytest.fixture(autouse=True)
+    def reset_warned(self):
+        _resolve_mod._warned.clear()
+        yield
+        _resolve_mod._warned.clear()
+
+    def test_pre_1_0_maestro_marker_honored_with_warning(self, workspace):
+        """.maestro marker is honored pre-1.0 and emits DeprecationWarning."""
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".maestro").write_text("../my-maestro\n")
+        with pytest.warns(DeprecationWarning, match="legacy.*\\.maestro.*marker"):
+            result = find_maestro_root(repo)
+        assert result == maestro.resolve()
+
+    def test_pre_1_0_maestro_root_env_honored_with_warning(self, workspace, monkeypatch):
+        """MAESTRO_ROOT env var is honored pre-1.0 and emits DeprecationWarning."""
+        maestro = workspace["maestro"]
+        monkeypatch.setenv("MAESTRO_ROOT", str(maestro))
+        monkeypatch.delenv("OTAMAN_ROOT", raising=False)
+        with pytest.warns(DeprecationWarning, match="MAESTRO_ROOT is deprecated"):
+            result = find_maestro_root(workspace["repo"])
+        assert result == maestro.resolve()
+
+    def test_pre_1_0_otaman_preferred_over_maestro(self, workspace):
+        """.otaman takes priority over .maestro silently (no warning for preferred path)."""
+        repo = workspace["repo"]
+        maestro = workspace["maestro"]
+        (repo / ".otaman").write_text("../my-maestro\n")
+        (repo / ".maestro").write_text("../my-maestro\n")  # also exists; ignored silently
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = find_maestro_root(repo)
+        assert result == maestro.resolve()
+        maestro_marker_warns = [
+            x for x in w
+            if issubclass(x.category, DeprecationWarning) and ".maestro" in str(x.message) and "rename" in str(x.message)
+        ]
+        assert not maestro_marker_warns, "No warning should fire when .otaman is present"

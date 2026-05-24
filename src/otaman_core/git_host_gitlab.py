@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from otaman_core.git_host import Comment, GitHostError, PullRequest
 
 
-_DEFAULT_UA = "maestro-plugin"
+_DEFAULT_UA = "otaman-plugin"
 
 
 class GitLabAdapter:

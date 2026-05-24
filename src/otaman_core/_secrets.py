@@ -1,30 +1,30 @@
-"""Secret resolution chain for maestro.
+"""Secret resolution chain for otaman.
 
 Resolves secret references declared in launch-settings.yaml (and later
 platform.yaml) through a tiered source chain:
 
     1. Process env  — variable already set in the shell
-    2. dotenv       — .maestro/secrets.env (gitignored, mode 0600)
+    2. dotenv       — .otaman/secrets.env (gitignored, mode 0600)
     3. keyring      — OS keychain via the keyring package (optional dep)
     4. (post-v1)    — vault / aws-sm / gcp-sm / azure-kv
 
 YAML shape accepted (backwards-compatible short form first):
 
     # Short form
-    bot_token_env: MAESTRO_TG_BOT_PERSONAL
+    bot_token_env: OTAMAN_TG_BOT_PERSONAL
 
     # Long form
     bot_token:
       sources:
-        - { type: env,     name: MAESTRO_TG_BOT_PERSONAL }
-        - { type: dotenv,  name: MAESTRO_TG_BOT_PERSONAL }
-        - { type: keyring, service: maestro, account: tg-personal }
+        - { type: env,     name: OTAMAN_TG_BOT_PERSONAL }
+        - { type: dotenv,  name: OTAMAN_TG_BOT_PERSONAL }
+        - { type: keyring, service: otaman, account: tg-personal }
 
 Usage:
     from _secrets import SecretRef, resolve, resolve_or_fail
 
     ref = SecretRef.from_config(config_value_from_yaml)
-    value = resolve(ref, maestro_root=Path("/path/to/maestro"))
+    value = resolve(ref, maestro_root=Path("/path/to/workspace"))  # legacy: maestro_root param renamed at 1.0
 """
 
 from __future__ import annotations
@@ -91,7 +91,11 @@ class EnvSource:
 
 
 class DotenvSource:
-    """Read from .maestro/secrets.env in the maestro root."""
+    """Read from .otaman/secrets.env in the otaman workspace root.
+
+    Falls back to .maestro/secrets.env (legacy: removed at 1.0) when
+    .otaman/secrets.env is absent.
+    """
 
     type_name = "dotenv"
 
@@ -99,10 +103,12 @@ class DotenvSource:
         name = spec.get("name")
         if not name:
             return None
-        maestro_root = context.get("maestro_root")
+        maestro_root = context.get("maestro_root")  # legacy: key renamed otaman_root at 1.0
         if not maestro_root:
             return None
-        dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"
+        dotenv_path = Path(maestro_root) / ".otaman" / "secrets.env"
+        if not dotenv_path.is_file():
+            dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback removed at 1.0
         if not dotenv_path.is_file():
             return None
         return _read_dotenv_value(dotenv_path, name)
@@ -118,7 +124,7 @@ class KeyringSource:
             import keyring  # type: ignore[import-not-found]
         except ImportError:
             return None
-        service = spec.get("service") or "maestro"
+        service = spec.get("service") or "otaman"
         account = spec.get("account") or spec.get("name")
         if not account:
             return None
@@ -150,9 +156,14 @@ def _read_dotenv_value(path: Path, key: str) -> str | None:
     return None
 
 
-def load_dotenv(maestro_root: Path | str) -> dict[str, str]:
-    """Load all KEY=VALUE pairs from .maestro/secrets.env. Empty dict if absent."""
-    path = Path(maestro_root) / ".maestro" / "secrets.env"
+def load_dotenv(maestro_root: Path | str) -> dict[str, str]:  # legacy: parameter renamed at 1.0
+    """Load all KEY=VALUE pairs from .otaman/secrets.env. Empty dict if absent.
+
+    Falls back to .maestro/secrets.env (legacy: removed at 1.0).
+    """
+    path = Path(maestro_root) / ".otaman" / "secrets.env"
+    if not path.is_file():
+        path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback removed at 1.0
     if not path.is_file():
         return {}
     out: dict[str, str] = {}
@@ -226,12 +237,12 @@ def resolve_or_fail(
     tried = ", ".join(_describe_source(s) for s in ref.sources) or "(no sources configured)"
     raise RuntimeError(
         f"Secret could not be resolved. Sources tried (in order): {tried}. "
-        f"Populate one via process env, .maestro/secrets.env, or OS keychain."
+        f"Populate one via process env, .otaman/secrets.env, or OS keychain."
     )
 
 
 def _describe_source(spec: dict[str, Any]) -> str:
     t = spec.get("type", "?")
     if t == "keyring":
-        return f"keyring:{spec.get('service', 'maestro')}/{spec.get('account', '?')}"
+        return f"keyring:{spec.get('service', 'otaman')}/{spec.get('account', '?')}"
     return f"{t}:{spec.get('name', '?')}"

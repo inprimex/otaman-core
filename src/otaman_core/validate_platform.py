@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a platform.yaml file against the maestro schema.
+"""Validate a platform.yaml file against the otaman platform schema.
 
 Usage:
     python validate-platform.py <path-to-platform.yaml>

@@ -30,7 +30,7 @@ properties:
           description: "Repo identifier — allows letters (any case), digits, dots, dashes, underscores. Real-world repos like 'GreenBin.Resources' or 'web.public' work as-is."
         path:
           type: string
-          description: "Relative path to the repo directory (from the maestro folder, e.g. ../my-repo)"
+          description: "Relative path to the repo directory (from the otaman workspace folder, e.g. ../my-repo)"
         owner:
           type: string
           pattern: "^[a-z][a-z0-9-]{1,63}$"
@@ -97,7 +97,7 @@ properties:
       format:
         type: string
         enum: [openspec, fallback]
-        description: "openspec = delegate to OpenSpec plugin; fallback = maestro lightweight proposals"
+        description: "openspec = delegate to OpenSpec plugin; fallback = otaman lightweight proposals"
     # Note: path is required when format=openspec. This is enforced by validate-platform.py
     # since JSON Schema conditionals (if/then) are not widely supported in YAML schema loaders.
 
@@ -204,10 +204,10 @@ properties:
                           enum: [dotenv]
                         name:
                           type: string
-                          description: "Variable name to read from .maestro/secrets.env"
+                          description: "Variable name to read from .otaman/secrets.env"
                         path:
                           type: string
-                          description: "Optional path override (defaults to .maestro/secrets.env)"
+                          description: "Optional path override (defaults to .otaman/secrets.env)"
                     - type: object
                       required: [type, account]
                       additionalProperties: false
@@ -217,19 +217,19 @@ properties:
                           enum: [keyring]
                         service:
                           type: string
-                          description: "Keyring service name (defaults to 'maestro')"
+                          description: "Keyring service name (defaults to 'otaman')"
                         account:
                           type: string
                           description: "Keyring account/key (e.g., 'gitlab-greenbin', 'tg-personal')"
           - type: string
             description: "Inline literal token (NOT recommended — use a SecretRef sources block instead)."
-        description: "PAT lookup chain. Maestro never stores the token in YAML; it resolves at runtime from env / dotenv / OS keyring. See scripts/_secrets.py."
+        description: "PAT lookup chain. Otaman never stores the token in YAML; it resolves at runtime from env / dotenv / OS keyring. See scripts/_secrets.py."
       default_scope:
         type: array
         items:
           type: string
         description: "Documents intended scope (read, write, etc.) — informational, not enforced."
-    description: "Git host PR/MR API integration (Phase 7). Enables `maestro git-host pr|post-review`."
+    description: "Git host PR/MR API integration (Phase 7). Enables `otaman git-host pr|post-review`."
 
   git_platform:
     type: object
@@ -285,7 +285,7 @@ properties:
       Model + effort tier resolution. Walks: CLI override → by_repo → by_agent →
       default. The launcher injects ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL
       based on the resolved tier. See scripts/_models_resolve.py and
-      `maestro models` CLI.
+      `otaman models` CLI.
 
   domain:
     type: string
@@ -317,7 +317,7 @@ properties:
               type: array
               items:
                 type: string
-              description: "Validation commands to run (e.g., 'pytest', 'maestro validate')"
+              description: "Validation commands to run (e.g., 'pytest', 'otaman validate')"
         description: >
           Gate definitions keyed by transition name (e.g., "discovery-to-development").
           Each gate lists required artifacts and validation checks.

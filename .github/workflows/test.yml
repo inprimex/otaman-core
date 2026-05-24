@@ -40,3 +40,7 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests/ -v
+
+      - name: Audit maestro references
+        if: runner.os != 'Windows'
+        run: bash scripts/audit-maestro-refs.sh src/

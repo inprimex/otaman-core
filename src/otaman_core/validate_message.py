@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate bus message files against the maestro message schema.
+"""Validate bus message files against the otaman message schema.
 
 Usage:
     python validate-message.py <message-file>           # validate one file
