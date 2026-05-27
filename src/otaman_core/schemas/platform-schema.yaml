@@ -436,6 +436,23 @@ properties:
       Launch profiles — named groups of repos for specific workflows.
       Used by launch-agents.ps1 to filter which agents to launch.
 
+  wiki:
+    type: object
+    additionalProperties: false
+    properties:
+      level:
+        type: string
+        enum: [minimal, standard, full]
+        default: standard
+        description: >
+          Wiki depth level for entity-file generation.
+          minimal  — Platform + Containers + Decisions only;
+          standard — + Component pages with C4 diagrams;
+          full     — + L4 code-unit pages for all public documented functions/methods.
+    description: >
+      Wiki ingestion configuration. Controls how deeply the wiki pipeline
+      (otaman_core.wiki) generates entity files from this project's source.
+
   knowledge:
     type: array
     items:
