@@ -45,7 +45,7 @@ while IFS= read -r match; do
 
     # Check if file is in the explicit allow-list.
     allowed=false
-    for allowed_file in "${ALLOWED_FILES[@]}"; do
+    for allowed_file in "${ALLOWED_FILES[@]:-}"; do
         if [[ "$file" == "$allowed_file" ]]; then
             allowed=true
             break

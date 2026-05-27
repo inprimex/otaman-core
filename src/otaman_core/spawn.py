@@ -9,9 +9,12 @@ in ``otaman-core`` so the Mode 1 (solo) CLI fallback can use the same
 spawn library function without depending on the runner package.
 
 Out of scope for v0 (deferred per Team-Mode Pilot decision, 2026-05-14):
-    - ``HeadlessBackend`` / ``HybridBackend`` (pilot is all interactive)
+    - ``HybridBackend`` (not yet designed)
     - ``WindowsTerminalBackend`` / ``ScreenBackend`` (pilot server is Linux)
     - NATS event publication (Mode 2 stays file-bus + audit log for v0)
+
+``HeadlessBackend`` shipped in runner post-v0 (ADR-009); ``SpawnMode.HEADLESS``
+is now fully wired end-to-end.
 """
 
 from __future__ import annotations
@@ -29,12 +32,12 @@ class SpawnMode(str, Enum):
     INTERACTIVE: human attends in a tmux/Windows-Terminal session;
         AttachInfo is returned so the caller can exec the attach command.
     HEADLESS: no user attends; harness writes transcript to disk/NATS;
-        the runner publishes lifecycle events.
+        the runner publishes lifecycle events. Implemented in runner v0.x
+        (HeadlessBackend, production-wired per ADR-009).
     HYBRID: interactive AND transcript-publishing — spectator-friendly.
 
-    Only INTERACTIVE is implemented in v0. HEADLESS / HYBRID stubs
-    raise ``NotImplementedError`` so the wiring is forced through one
-    code path until they ship.
+    INTERACTIVE and HEADLESS are fully implemented. HYBRID stubs
+    raise ``NotImplementedError`` until the mode is designed.
     """
 
     INTERACTIVE = "interactive"
@@ -84,9 +87,9 @@ class SpawnRequest:
             raise ValueError("SpawnRequest.repo is required")
         if not isinstance(self.project_root, Path):
             raise TypeError("SpawnRequest.project_root must be a Path")
-        if self.mode in (SpawnMode.HEADLESS, SpawnMode.HYBRID):
+        if self.mode is SpawnMode.HYBRID:
             raise NotImplementedError(
-                f"SpawnMode.{self.mode.name} is not implemented in v0 — "
+                f"SpawnMode.{self.mode.name} is not implemented — "
                 "see ADR-009 backlog"
             )
         if self.harness != "claude-code":

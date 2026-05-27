@@ -75,16 +75,18 @@ class TestSpawnRequest:
                 project_root="/tmp/wrong-type",  # type: ignore[arg-type]
             )
 
-    def test_headless_mode_not_implemented_in_v0(self, tmp_path):
-        with pytest.raises(NotImplementedError, match="HEADLESS"):
-            SpawnRequest(
-                agent="backend-agent",
-                repo="auth-service",
-                project_root=tmp_path,
-                mode=SpawnMode.HEADLESS,
-            )
+    def test_headless_mode_is_accepted(self, tmp_path):
+        # SpawnMode.HEADLESS guard lifted — HeadlessBackend is production-wired
+        # in otaman-runner (ADR-009). SpawnRequest construction must not raise.
+        req = SpawnRequest(
+            agent="backend-agent",
+            repo="auth-service",
+            project_root=tmp_path,
+            mode=SpawnMode.HEADLESS,
+        )
+        assert req.mode is SpawnMode.HEADLESS
 
-    def test_hybrid_mode_not_implemented_in_v0(self, tmp_path):
+    def test_hybrid_mode_not_implemented(self, tmp_path):
         with pytest.raises(NotImplementedError, match="HYBRID"):
             SpawnRequest(
                 agent="backend-agent",
