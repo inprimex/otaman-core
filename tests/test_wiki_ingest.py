@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from otaman_core.wiki import HAS_TREE_SITTER, WikiEntity, ingest
-from otaman_core.wiki._extract import extract_entities, module_dotted_id
-from otaman_core.wiki._entity import WikiEntity as _WikiEntity
+from otaman_core.wiki._extract import extract_entities, module_dotted_id, parse_file
+from otaman_core.wiki._entity import WikiEntity as _WikiEntity, Relation
 
 
 pytestmark = pytest.mark.skipif(
@@ -203,7 +203,7 @@ class TestIngest:
     def test_stats_keys(self, tmp_path):
         src_dir = self._write_py(tmp_path, "c.py", b"x = 1\n")
         stats = ingest([src_dir], tmp_path / "wiki", "r", src_root=tmp_path / "src")
-        for key in ("files", "entities", "skipped", "loc", "elapsed_sec", "loc_per_sec"):
+        for key in ("files", "entities", "skipped", "loc", "elapsed_sec", "loc_per_sec", "links"):
             assert key in stats
 
     def test_no_overwrite_by_default(self, tmp_path):
@@ -237,3 +237,216 @@ class TestIngest:
         src_dir = self._write_py(tmp_path, "g.py", b"x = 1\ny = 2\n")
         stats = ingest([src_dir], tmp_path / "wiki", "r", src_root=tmp_path / "src")
         assert stats["loc_per_sec"] > 0
+
+
+# ---------------------------------------------------------------------------
+# parse_file — two-pass raw extraction
+# ---------------------------------------------------------------------------
+
+_SRC_WITH_IMPORTS = b'''\
+"""A module that imports things."""
+
+import os
+import yaml
+from pathlib import Path
+from otaman_core._resolve import find_maestro_root
+
+class Foo:
+    pass
+'''
+
+_SRC_WITH_BASES = b'''\
+"""A module with inheritance."""
+
+class Base:
+    pass
+
+class Child(Base):
+    pass
+
+class Multi(Base, dict):
+    pass
+'''
+
+
+class TestParseFile:
+    def test_returns_entities(self):
+        result = parse_file(_SAMPLE_SRC, Path("src/mymod.py"), "myrepo")
+        assert len(result.entities) > 0
+
+    def test_loc_count(self):
+        result = parse_file(_SAMPLE_SRC, Path("src/mymod.py"), "myrepo")
+        assert result.loc == _SAMPLE_SRC.count(b"\n")
+
+    def test_imported_modules_captured(self):
+        result = parse_file(_SRC_WITH_IMPORTS, Path("src/mymod.py"), "myrepo")
+        # Should capture top-level import targets
+        assert "os" in result.imported_modules
+        assert "yaml" in result.imported_modules
+        # from-import: module path "pathlib"
+        assert "pathlib" in result.imported_modules
+        # from-import: module path "otaman_core._resolve"
+        assert "otaman_core._resolve" in result.imported_modules
+
+    def test_relative_imports_skipped(self):
+        src = b"from . import sibling\nfrom .utils import helper\n"
+        result = parse_file(src, Path("src/mymod.py"), "myrepo")
+        # Relative imports must not appear — they can't be resolved statically
+        for mod in result.imported_modules:
+            assert not mod.startswith(".")
+
+    def test_class_bases_captured(self):
+        result = parse_file(_SRC_WITH_BASES, Path("src/mymod.py"), "myrepo")
+        # Child(Base) — should record bases
+        child_id = "myrepo.mymod.Child"
+        assert child_id in result.class_bases
+        assert "Base" in result.class_bases[child_id]
+
+    def test_class_with_no_bases_absent(self):
+        result = parse_file(_SRC_WITH_BASES, Path("src/mymod.py"), "myrepo")
+        base_id = "myrepo.mymod.Base"
+        assert base_id not in result.class_bases
+
+    def test_multiple_bases(self):
+        result = parse_file(_SRC_WITH_BASES, Path("src/mymod.py"), "myrepo")
+        multi_id = "myrepo.mymod.Multi"
+        assert multi_id in result.class_bases
+        assert "Base" in result.class_bases[multi_id]
+        assert "dict" in result.class_bases[multi_id]
+
+
+# ---------------------------------------------------------------------------
+# WikiEntity.to_markdown with relations
+# ---------------------------------------------------------------------------
+
+class TestMarkdownWithRelations:
+    def _entity(self, **kwargs) -> WikiEntity:
+        defaults = dict(
+            id="repo.mod.Foo",
+            title="Foo",
+            kind="component",
+            source_file="src/mod.py",
+            source_line=10,
+        )
+        defaults.update(kwargs)
+        return WikiEntity(**defaults)
+
+    def test_no_relations_block_when_empty(self):
+        md = self._entity().to_markdown()
+        assert "**Part of**" not in md
+        assert "**Contains**" not in md
+        assert "[[" not in md
+
+    def test_single_relation_rendered(self):
+        e = self._entity()
+        e.relations = [("Part of", "repo.mod", "mod")]
+        md = e.to_markdown()
+        assert "**Part of**" in md
+        assert "[[repo.mod|mod]]" in md
+
+    def test_multiple_same_label_on_one_line(self):
+        e = self._entity()
+        e.relations = [
+            ("Contains", "repo.mod.bar", "bar"),
+            ("Contains", "repo.mod.baz", "baz"),
+        ]
+        md = e.to_markdown()
+        assert "**Contains**" in md
+        # Both links should appear
+        assert "[[repo.mod.bar|bar]]" in md
+        assert "[[repo.mod.baz|baz]]" in md
+
+    def test_relations_before_docstring(self):
+        e = self._entity(docstring="My docstring.")
+        e.relations = [("Part of", "repo.mod", "mod")]
+        md = e.to_markdown()
+        rel_pos = md.index("**Part of**")
+        doc_pos = md.index("## Docstring")
+        assert rel_pos < doc_pos
+
+    def test_relations_before_llm_block(self):
+        e = self._entity()
+        e.relations = [("Inherits", "repo.mod.Base", "Base")]
+        md = e.to_markdown()
+        rel_pos = md.index("**Inherits**")
+        llm_pos = md.index("<!-- llm-managed:begin -->")
+        assert rel_pos < llm_pos
+
+
+# ---------------------------------------------------------------------------
+# ingest() — two-pass graph link integration
+# ---------------------------------------------------------------------------
+
+_PARENT_SRC = b'''\
+"""Parent module."""
+
+class Alpha:
+    """Alpha class."""
+    pass
+'''
+
+_CHILD_SRC = b'''\
+"""Child module that imports parent."""
+
+from mypkg.parent import Alpha
+
+class Beta(Alpha):
+    """Beta inherits Alpha (cross-module)."""
+    pass
+'''
+
+
+class TestIngestGraphLinks:
+    def _setup_two_files(self, tmp_path: Path):
+        src_dir = tmp_path / "src" / "mypkg"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "parent.py").write_bytes(_PARENT_SRC)
+        (src_dir / "child.py").write_bytes(_CHILD_SRC)
+        return src_dir
+
+    def test_links_key_in_stats(self, tmp_path):
+        src_dir = self._setup_two_files(tmp_path)
+        stats = ingest([src_dir], tmp_path / "wiki", "myrepo",
+                       src_root=tmp_path / "src")
+        assert "links" in stats
+        assert isinstance(stats["links"], int)
+        assert stats["links"] >= 0
+
+    def test_parent_child_links_generated(self, tmp_path):
+        src_dir = self._setup_two_files(tmp_path)
+        wiki_dir = tmp_path / "wiki"
+        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src",
+               overwrite=True)
+
+        # Alpha's entity file should have a "Contains" link for any method,
+        # and Alpha itself should have a "Part of" link back to the module.
+        alpha_file = wiki_dir / "myrepo.mypkg.parent.Alpha.md"
+        assert alpha_file.exists()
+        alpha_md = alpha_file.read_text()
+        assert "**Part of**" in alpha_md
+        assert "[[myrepo.mypkg.parent|" in alpha_md
+
+    def test_import_links_generated(self, tmp_path):
+        src_dir = self._setup_two_files(tmp_path)
+        wiki_dir = tmp_path / "wiki"
+        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src",
+               overwrite=True)
+
+        # child module imports parent — child's entity file should have an Imports link
+        child_mod_file = wiki_dir / "myrepo.mypkg.child.md"
+        assert child_mod_file.exists()
+        child_md = child_mod_file.read_text()
+        assert "**Imports**" in child_md
+        assert "[[myrepo.mypkg.parent|" in child_md
+
+    def test_no_self_import_links(self, tmp_path):
+        """A module must not link to itself via imports."""
+        src_dir = tmp_path / "src" / "mypkg"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "selfref.py").write_bytes(b"import os\nimport sys\n")
+        wiki_dir = tmp_path / "wiki"
+        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src")
+        mod_file = wiki_dir / "myrepo.mypkg.selfref.md"
+        md = mod_file.read_text()
+        # os/sys are not in this repo — no Imports link expected
+        assert "[[myrepo.mypkg.selfref|" not in md

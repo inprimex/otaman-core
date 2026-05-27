@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
@@ -14,6 +15,18 @@ except ImportError:  # pragma: no cover
     HAS_TREE_SITTER = False
 
 from ._entity import WikiEntity
+
+
+@dataclass
+class FileParseResult:
+    """Raw extraction result for one Python file — before cross-file resolution."""
+
+    entities: list[WikiEntity]
+    # Python module paths found in import statements, e.g. ["otaman_core._resolve", "yaml"]
+    imported_modules: list[str] = field(default_factory=list)
+    # class entity-id → list of raw base-class names, e.g. {"repo.mod.Foo": ["Bar", "Enum"]}
+    class_bases: dict[str, list[str]] = field(default_factory=dict)
+    loc: int = 0
 
 
 def module_dotted_id(repo_name: str, rel_path: Path) -> str:
@@ -32,6 +45,10 @@ def _identifier(node, src: bytes) -> str | None:
         if child.type == "identifier":
             return src[child.start_byte : child.end_byte].decode("utf-8", errors="replace")
     return None
+
+
+def _dotted_name(node, src: bytes) -> str:
+    return src[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
 def _docstring(node, src: bytes) -> str | None:
@@ -64,10 +81,49 @@ def _strip_quotes(s: str) -> str:
     return s.strip()
 
 
-def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[WikiEntity]:
-    """Extract L3 (module/component) and L4 (code-unit) entities from Python bytes.
+def _extract_imports(root, src: bytes) -> list[str]:
+    """Return Python module paths from top-level import statements."""
+    modules: list[str] = []
+    for node in root.children:
+        if node.type == "import_statement":
+            # import yaml  /  import os.path
+            for c in node.children:
+                if c.type in ("dotted_name", "aliased_import"):
+                    inner = c if c.type == "dotted_name" else next(
+                        (x for x in c.children if x.type == "dotted_name"), None
+                    )
+                    if inner:
+                        modules.append(_dotted_name(inner, src))
+        elif node.type == "import_from_statement":
+            # from otaman_core._resolve import X  /  from . import Y (skip relative)
+            for c in node.children:
+                if c.type == "dotted_name":
+                    modules.append(_dotted_name(c, src))
+                    break
+                if c.type == "relative_import":
+                    break  # skip relative imports — can't resolve them statically
+    return modules
 
-    Raises ImportError if tree-sitter is not installed.
+
+def _extract_bases(class_node, src: bytes) -> list[str]:
+    """Return raw base-class names from a class definition."""
+    bases: list[str] = []
+    for child in class_node.children:
+        if child.type == "argument_list":
+            for c in child.children:
+                if c.type == "identifier":
+                    bases.append(src[c.start_byte : c.end_byte].decode("utf-8", errors="replace"))
+                elif c.type == "dotted_name":
+                    # e.g. class Foo(some.Base)
+                    bases.append(_dotted_name(c, src).rsplit(".", 1)[-1])
+    return bases
+
+
+def parse_file(src_bytes: bytes, rel_path: Path, repo_name: str) -> FileParseResult:
+    """Full parse of one Python file — entities + imports + base classes + LOC.
+
+    This is the primary entry point for the two-pass ingest. Use
+    ``extract_entities`` when you only need the entity list.
     """
     if not HAS_TREE_SITTER:
         raise ImportError("tree-sitter and tree-sitter-python are required for wiki ingestion")
@@ -79,6 +135,7 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
     mod_id = module_dotted_id(repo_name, rel_path)
     src_str = str(rel_path)
     entities: list[WikiEntity] = []
+    class_bases: dict[str, list[str]] = {}
 
     # L3 module entity
     entities.append(
@@ -98,6 +155,9 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
             if not cls_name:
                 continue
             cls_id = f"{mod_id}.{cls_name}"
+            bases = _extract_bases(node, src_bytes)
+            if bases:
+                class_bases[cls_id] = bases
             entities.append(
                 WikiEntity(
                     id=cls_id,
@@ -109,7 +169,6 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
                     parent_id=mod_id,
                 )
             )
-            # L4 methods
             for child in node.children:
                 if child.type == "block":
                     for c in child.children:
@@ -151,11 +210,20 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
                 )
             )
 
-    return entities
+    return FileParseResult(
+        entities=entities,
+        imported_modules=_extract_imports(root, src_bytes),
+        class_bases=class_bases,
+        loc=src_bytes.count(b"\n"),
+    )
+
+
+def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[WikiEntity]:
+    """Convenience wrapper — returns only the entity list (no relation resolution)."""
+    return parse_file(src_bytes, rel_path, repo_name).entities
 
 
 def _unwrap_decorated(node) -> object | None:
-    """Return the inner function_definition from a decorated_definition node."""
     for child in node.children:
         if child.type == "function_definition":
             return child

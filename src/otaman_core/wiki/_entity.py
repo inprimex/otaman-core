@@ -10,6 +10,9 @@ import yaml
 
 EntityKind = Literal["module", "component", "code-unit"]
 
+# (relation_label, target_entity_id, target_display_title)
+Relation = tuple[str, str, str]
+
 
 @dataclass
 class WikiEntity:
@@ -30,6 +33,8 @@ class WikiEntity:
     provenance: str = "static-analysis"
     confidence: float = 1.0
     parent_id: str | None = None
+    # Resolved graph relations — populated by the two-pass ingest
+    relations: list[Relation] = field(default_factory=list)
 
     def filename(self) -> str:
         return f"{self.id}.md"
@@ -51,25 +56,43 @@ class WikiEntity:
         if self.parent_id:
             fm["parent"] = self.parent_id
 
-        body_parts: list[str] = []
+        body: list[str] = []
 
+        # --- Graph relations block (Obsidian-visible wikilinks) ---
+        if self.relations:
+            # Group by label
+            groups: dict[str, list[str]] = {}
+            for label, target_id, display in self.relations:
+                link = f"[[{target_id}|{display}]]"
+                groups.setdefault(label, []).append(link)
+
+            for label, links in groups.items():
+                if len(links) == 1:
+                    body.append(f"**{label}** {links[0]}  ")
+                else:
+                    body.append(f"**{label}**  ")
+                    body.append("  ".join(links) + "  ")
+            body.append("")
+
+        # --- Docstring ---
         if self.docstring:
-            body_parts.append("## Docstring\n")
-            body_parts.append(self.docstring.strip())
-            body_parts.append("")
+            body.append("## Docstring\n")
+            body.append(self.docstring.strip())
+            body.append("")
 
-        body_parts.append("## Synthesized description")
-        body_parts.append("<!-- llm-managed:begin -->")
-        body_parts.append("")
-        body_parts.append("<!-- llm-managed:end -->")
-        body_parts.append("")
-        body_parts.append("## Human notes")
-        body_parts.append("<!-- human-edited -->")
-        body_parts.append("")
+        # --- LLM-managed region ---
+        body.append("## Synthesized description")
+        body.append("<!-- llm-managed:begin -->")
+        body.append("")
+        body.append("<!-- llm-managed:end -->")
+        body.append("")
+        body.append("## Human notes")
+        body.append("<!-- human-edited -->")
+        body.append("")
 
         return (
             "---\n"
             + yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)
             + "---\n\n"
-            + "\n".join(body_parts)
+            + "\n".join(body)
         )
