@@ -26,7 +26,7 @@ _WINDOWS_SHELLS = frozenset({"powershell", "pwsh", "cmd"})
 # Known fields in marker files. Unknown `key:` lines fall through to
 # bare-path handling, which preserves support for Windows absolute paths
 # (e.g. ``C:/work/my-otaman``) that happen to contain a colon.
-_KNOWN_MARKER_FIELDS = frozenset({"otaman_root", "maestro_root", "expected_account"})  # legacy: maestro_root retained for one minor release
+_KNOWN_MARKER_FIELDS = frozenset({"otaman_root", "maestro_root", "expected_account", "agent"})  # legacy: maestro_root retained for one minor release
 
 # Keys emitted at most once per interpreter process, keyed by a unique channel string.
 _warned: set[str] = set()
@@ -258,7 +258,8 @@ def parse_marker_fields(marker_path: Path) -> dict[str, str]:
       (legacy: field renamed to ``otaman_root`` at 1.0).
     - **Extended** — ``key: value`` lines for known fields, plus an
       optional bare path line. Current known fields: ``otaman_root``,
-      ``maestro_root`` (legacy: renamed at 1.0), ``expected_account``.
+      ``maestro_root`` (legacy: renamed at 1.0), ``expected_account``,
+      ``agent`` (optional: owner agent identity for this repo, e.g. ``core-agent``).
 
     Unknown ``key: value`` lines are ignored so that Windows absolute
     paths containing a colon (``C:/foo``) continue to parse as bare

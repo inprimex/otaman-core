@@ -38,6 +38,8 @@ VALID_TYPES = {
     "task-complete",
     "proposal",
     "post-commit-review",
+    "emergency-halt",
+    "agent-registry-change",
 }
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
@@ -87,12 +89,43 @@ def validate_message(filepath: Path, known_agents: set[str] | None = None) -> li
     if status and status not in ("pending", "read", "resolved"):
         errors.append(f"Unknown status: '{status}' (valid: pending, read, resolved)")
 
+    # reply-to: optional field for task-assignment messages
+    reply_to = fm.get("reply-to")
+    if reply_to is not None:
+        import re as _re
+        _REPLY_TO_PATTERN = _re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
+        if not _REPLY_TO_PATTERN.match(str(reply_to)):
+            errors.append(
+                f"Invalid reply-to: '{reply_to}' — must be an agent name "
+                "(e.g. 'core-agent') or 'human'"
+            )
+
     # Agent name validation
+    # Broadcast whitelist — only these types may use to: all
+    _BROADCAST_TYPES = frozenset({"contract-change", "emergency-halt", "agent-registry-change"})
+
     if known_agents:
         to_field = fm.get("to", "")
-        if to_field and to_field not in ("all", "human") and to_field not in known_agents:
-            errors.append(f"Unknown recipient agent: '{to_field}' (not in agents.yaml)")
+        if to_field and to_field not in ("all", "human"):
+            # Accept comma-separated agent list: "core-agent, cli-agent" or single name
+            recipients = [r.strip() for r in to_field.split(",") if r.strip()]
+            unknown = [r for r in recipients if r not in known_agents and r not in ("human", "all")]
+            if unknown:
+                errors.append(
+                    f"Unknown recipient agent(s): {unknown!r} (not in agents.yaml)"
+                )
 
+    # Broadcast whitelist check (always; not gated on known_agents)
+    to_field = fm.get("to", "")
+    msg_type = fm.get("type", "")
+    if to_field == "all" and msg_type and msg_type not in _BROADCAST_TYPES:
+        errors.append(
+            f"Message type '{msg_type}' must not use 'to: all'; "
+            f"only {sorted(_BROADCAST_TYPES)} may broadcast. "
+            "Use a specific agent name or comma-separated list instead."
+        )
+
+    if known_agents:
         from_field = fm.get("from", "")
         if from_field and from_field not in ("human",) and from_field not in known_agents:
             # Allow repo names as senders (from post-commit hooks)
