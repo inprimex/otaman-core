@@ -26,6 +26,17 @@ _WINDOWS_SHELLS = frozenset({"powershell", "pwsh", "cmd"})
 # Known fields in marker files. Unknown `key:` lines fall through to
 # bare-path handling, which preserves support for Windows absolute paths
 # (e.g. ``C:/work/my-otaman``) that happen to contain a colon.
+#
+# .otaman marker supports two shapes:
+#
+#   Shape (a) — regular file (most repos):
+#     otaman_root: ../otaman-meta   # path to the meta directory
+#     agent: core-agent             # optional: owner agent identity for this repo
+#
+#   Shape (b) — directory (used by otaman-meta itself to avoid a file/dir collision):
+#     .otaman/agent                 # single-line text file; content is the agent name
+#
+# Shape (b) identity is NOT parsed by parse_marker_fields(); use read_agent() instead.
 _KNOWN_MARKER_FIELDS = frozenset({"otaman_root", "maestro_root", "expected_account", "agent"})  # legacy: maestro_root retained for one minor release
 
 # Keys emitted at most once per interpreter process, keyed by a unique channel string.
@@ -249,17 +260,43 @@ def resolve_worktree_main(path: Path | None = None) -> Path | None:
 
 
 def parse_marker_fields(marker_path: Path) -> dict[str, str]:
-    """Parse a marker file into a dict of fields.
+    """Parse a ``.otaman`` marker file into a dict of fields.
 
-    Accepts two formats, chosen line-by-line:
+    **File-shape only.** For directory-shape markers (``.otaman`` is a
+    directory), use :func:`read_agent` which handles both shapes.
 
-    - **Legacy** — a single bare line holding the relative path to the
-      otaman folder (e.g. ``../my-otaman``). Becomes ``maestro_root``
+    Accepts two line formats, evaluated line-by-line:
+
+    - **Legacy** — a single bare path line pointing to the otaman meta
+      directory (e.g. ``../otaman-meta``). Stored as ``maestro_root``
       (legacy: field renamed to ``otaman_root`` at 1.0).
     - **Extended** — ``key: value`` lines for known fields, plus an
-      optional bare path line. Current known fields: ``otaman_root``,
-      ``maestro_root`` (legacy: renamed at 1.0), ``expected_account``,
-      ``agent`` (optional: owner agent identity for this repo, e.g. ``core-agent``).
+      optional bare path line.
+
+    Known fields:
+
+    - ``otaman_root`` — relative path to the otaman-meta directory.
+      Written by ``otaman init``.
+    - ``maestro_root`` — legacy alias for ``otaman_root`` (deprecated,
+      removed at 1.0).
+    - ``expected_account`` — legacy alias for ``expected_routing``
+      (deprecated).
+    - ``agent`` — **optional**; owner agent identity for this repo
+      (e.g. ``core-agent``). Written by ``otaman init --update``.
+      When present, :func:`read_agent` resolves to this value instead
+      of falling through to the deprecated ``current-agent`` global
+      file. Absent on repos not yet initialised with ``--update``.
+
+    File-shape example::
+
+        # .otaman
+        otaman_root: ../otaman-meta
+        agent: core-agent
+
+    Directory-shape (not handled here — use :func:`read_agent`)::
+
+        # .otaman/agent  (single-line text file)
+        human
 
     Unknown ``key: value`` lines are ignored so that Windows absolute
     paths containing a colon (``C:/foo``) continue to parse as bare
@@ -285,6 +322,56 @@ def parse_marker_fields(marker_path: Path) -> dict[str, str]:
         # Bare line → treat as maestro_root if not set (legacy: bare path mapping removed at 1.0)
         fields.setdefault("maestro_root", line)  # legacy: bare path stored as maestro_root for compat
     return fields
+
+
+def read_agent(start: Path | None = None) -> str | None:
+    """Walk up from *start* and return the first agent identity found.
+
+    Checks each ancestor directory for a ``.otaman`` marker in either shape:
+
+    Shape (a) — regular file with an ``agent:`` field::
+
+        # .otaman
+        otaman_root: ../otaman-meta
+        agent: core-agent
+
+    Shape (b) — directory containing a single-line ``agent`` text file::
+
+        # .otaman/agent
+        human
+
+    The walk skips entries that exist but carry no agent name (a file
+    without ``agent:``, or a directory without an ``agent`` sub-file) and
+    continues up to the next ancestor — identical to the behaviour in
+    :func:`_find_maestro_root_from` for ``otaman_root``.
+
+    For shape (b): if ``agent`` contains multiple lines only the first
+    non-empty trimmed line is used; an empty or whitespace-only file is
+    treated as absent.
+
+    Returns:
+        The agent name string, or ``None`` if the walk reaches the
+        filesystem root without finding one.
+    """
+    current = (start or Path.cwd()).resolve()
+    while current != current.parent:
+        marker = current / ".otaman"
+        if marker.is_file():
+            agent = parse_marker_fields(marker).get("agent")
+            if agent:
+                return agent
+        elif marker.is_dir():
+            agent_file = marker / "agent"
+            if agent_file.is_file():
+                try:
+                    lines = agent_file.read_text(encoding="utf-8").splitlines()
+                    name = next((ln.strip() for ln in lines if ln.strip()), None)
+                    if name:
+                        return name
+                except OSError:
+                    pass
+        current = current.parent
+    return None
 
 
 def find_marker(start: Path | None = None) -> Path | None:

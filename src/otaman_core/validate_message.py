@@ -25,6 +25,35 @@ except ImportError:
     print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
 
+# ---------------------------------------------------------------------------
+# Bus message frontmatter schema
+# ---------------------------------------------------------------------------
+# Required fields: id, from, to, type, timestamp
+#
+# Optional fields:
+#
+#   priority:   low | normal | high | urgent  (default: normal if absent)
+#   status:     pending | read | resolved     (managed by the CLI; agents
+#               should not set this manually)
+#
+#   reply-to:   <agent-name> | human
+#     Present on task-assignment messages to declare which agent should
+#     receive the task-complete reply. When absent, `otaman complete`
+#     falls back to the `from:` field of the originating task-assignment.
+#     Optional; valid values follow the same agent-name pattern as `from:`.
+#
+#   to:         all | human | <agent-name> | <agent-name>, <agent-name>, ...
+#     Single agent name, comma-separated list, `human`, or `all`.
+#     Broadcast whitelist — only these types may use `to: all`:
+#       - contract-change
+#       - emergency-halt
+#       - agent-registry-change
+#     Any other type using `to: all` triggers a validation warning
+#     (not blocked, for backwards compatibility) but SHOULD be fixed.
+#
+# Body format: Markdown. MUST contain a `## Subject: <text>` heading.
+# ---------------------------------------------------------------------------
+
 VALID_TYPES = {
     "info",
     "question",

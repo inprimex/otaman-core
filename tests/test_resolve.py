@@ -16,6 +16,7 @@ from otaman_core._resolve import (
     find_maestro_root,
     find_marker,
     parse_marker_fields,
+    read_agent,
     read_expected_account,
     resolve_worktree_main,
 )
@@ -797,3 +798,84 @@ class TestSunsetBehaviorMatrix:
             if issubclass(x.category, DeprecationWarning) and ".maestro" in str(x.message) and "rename" in str(x.message)
         ]
         assert not maestro_marker_warns, "No warning should fire when .otaman is present"
+
+
+# ---------------------------------------------------------------------------
+# read_agent — shape (a) file + shape (b) directory
+# ---------------------------------------------------------------------------
+
+
+class TestReadAgent:
+    """read_agent() handles both .otaman file-shape and directory-shape markers."""
+
+    def test_file_shape_returns_agent(self, tmp_path):
+        (tmp_path / ".otaman").write_text("otaman_root: ../meta\nagent: core-agent\n")
+        assert read_agent(tmp_path) == "core-agent"
+
+    def test_file_shape_no_agent_field_returns_none(self, tmp_path):
+        (tmp_path / ".otaman").write_text("otaman_root: ../meta\n")
+        assert read_agent(tmp_path) is None
+
+    def test_directory_shape_returns_agent(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        (d / "agent").write_text("human\n")
+        assert read_agent(tmp_path) == "human"
+
+    def test_directory_shape_strips_whitespace(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        (d / "agent").write_text("  bridge-agent  \n")
+        assert read_agent(tmp_path) == "bridge-agent"
+
+    def test_directory_shape_multiline_uses_first_nonempty(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        (d / "agent").write_text("\n\nspec-agent\ncli-agent\n")
+        assert read_agent(tmp_path) == "spec-agent"
+
+    def test_directory_shape_empty_file_returns_none(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        (d / "agent").write_text("   \n")
+        assert read_agent(tmp_path) is None
+
+    def test_directory_shape_no_agent_file_returns_none(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        assert read_agent(tmp_path) is None
+
+    def test_walks_up_to_parent_file_shape(self, tmp_path):
+        (tmp_path / ".otaman").write_text("otaman_root: ../meta\nagent: parent-agent\n")
+        child = tmp_path / "repo" / "src"
+        child.mkdir(parents=True)
+        assert read_agent(child) == "parent-agent"
+
+    def test_walks_up_to_parent_directory_shape(self, tmp_path):
+        d = tmp_path / ".otaman"
+        d.mkdir()
+        (d / "agent").write_text("human\n")
+        child = tmp_path / "sub" / "deep"
+        child.mkdir(parents=True)
+        assert read_agent(child) == "human"
+
+    def test_child_file_without_agent_walks_to_parent_directory_shape(self, tmp_path):
+        parent_otaman = tmp_path / ".otaman"
+        parent_otaman.mkdir()
+        (parent_otaman / "agent").write_text("human\n")
+
+        child = tmp_path / "repo"
+        child.mkdir()
+        (child / ".otaman").write_text("otaman_root: ../meta\n")  # no agent: field
+
+        assert read_agent(child) == "human"
+
+    def test_no_marker_returns_none(self, tmp_path):
+        orphan = tmp_path / "orphan"
+        orphan.mkdir()
+        assert read_agent(orphan) is None
+
+    def test_defaults_to_cwd(self, tmp_path, monkeypatch):
+        (tmp_path / ".otaman").write_text("agent: runner-agent\n")
+        monkeypatch.chdir(tmp_path)
+        assert read_agent() == "runner-agent"
