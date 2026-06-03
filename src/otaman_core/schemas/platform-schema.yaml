@@ -473,3 +473,110 @@ properties:
     description: >
       Tech stack knowledge packs. Auto-fetched from revlet.ai when available,
       or manually provided by human. Referenced in generated CLAUDE.md.
+
+  launcher:
+    type: object
+    additionalProperties: false
+    description: >
+      Launch configuration for local and remote (SSH) sessions.
+      Used by launch_resolve.py to drive `otaman session spawn`.
+      Emitted by `otaman init` / `post_scan` into platform.yaml.
+    properties:
+      local:
+        type: object
+        additionalProperties: false
+        description: "Local session spawn settings."
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Enable local session spawning (default: true)."
+      ssh:
+        type: object
+        additionalProperties: false
+        description: "SSH-based remote session spawn settings."
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: "Enable SSH remote session spawning (default: false)."
+          host:
+            type: string
+            description: "SSH target (e.g., user@hostname)."
+          repo_path:
+            type: string
+            description: "Absolute path to the repo root on the remote host."
+
+  program:
+    type: object
+    additionalProperties: true
+    description: >
+      Program-level metadata: process opt-ins, role definitions, release milestones,
+      effort scale, and Claude profile. Extra keys are allowed — this block grows as
+      additional registries (outcomes, solutions) land. Use additionalProperties: true
+      to avoid churn while the schema evolves.
+    properties:
+      claude:
+        type: object
+        additionalProperties: false
+        description: "Claude Code profile configuration (program-init-claude-profile)."
+        properties:
+          config_dir:
+            type: string
+            description: >
+              CLAUDE_CONFIG_DIR path; preserves the user's OAuth profile across
+              sessions. Also accepted as 'config-dir' (alias).
+          config-dir:
+            type: string
+            description: "Alias for config_dir."
+      processes:
+        type: object
+        additionalProperties: true
+        description: >
+          Process-level opt-in flags (e.g., outcomes.enabled: true,
+          solutions.enabled: true). Keys mirror registry names.
+      roles:
+        type: array
+        description: "Role definitions for role-based routing and task assignment."
+        items:
+          type: object
+          required: [id, name]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              description: "Role identifier (slug)."
+            name:
+              type: string
+              description: "Human-readable role name."
+            description:
+              type: string
+              default: ""
+              description: "Optional description of this role."
+      role-assignments:
+        type: object
+        additionalProperties:
+          type: string
+        description: "Map from role id to agent name."
+      releases:
+        type: array
+        description: "Release milestones for outcome and solution tracking."
+        items:
+          type: object
+          required: [id]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              description: "Release identifier (e.g., 'v1.0', 'mvp')."
+            description:
+              type: string
+              default: ""
+              description: "Optional description of this release."
+      t-shirt-scale:
+        type: object
+        additionalProperties:
+          type: number
+        description: >
+          Named effort tiers mapping size label to relative cost multiplier
+          (e.g., S: 0.5, M: 1.0, L: 2.0, XL: 4.0). Used by the estimator.
