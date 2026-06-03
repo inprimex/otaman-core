@@ -71,3 +71,28 @@ profiles:
 #       - { type: env,     name: OTAMAN_GH_PAT_EXAMPLE }
 #       - { type: dotenv,  name: OTAMAN_GH_PAT_EXAMPLE }
 #       - { type: keyring, service: otaman, account: gh-pat-example }
+
+launcher:
+  local:
+    enabled: true
+  ssh:
+    enabled: false
+    host: user@host.example.com
+    repo_path: /home/user/projects/example-platform
+
+program:
+  claude:
+    config_dir: ~/.claude
+  roles:
+    - id: developer
+      name: Developer
+    - id: reviewer
+      name: Reviewer
+  releases:
+    - id: v1.0
+      description: "Initial release"
+  t-shirt-scale:
+    S: 0.5
+    M: 1.0
+    L: 2.0
+    XL: 4.0
