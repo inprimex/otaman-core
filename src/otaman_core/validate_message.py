@@ -48,8 +48,25 @@ except ImportError:
 #       - contract-change
 #       - emergency-halt
 #       - agent-registry-change
-#     Any other type using `to: all` triggers a validation warning
-#     (not blocked, for backwards compatibility) but SHOULD be fixed.
+#     Any other type using `to: all` triggers a validation error.
+#
+#   expects-response: true | false
+#     Sender declares whether a reply is required. Default false (FYI semantics
+#     preserved when absent). When true, the receiver MUST NOT ack as `resolved`
+#     until a typed reply is sent. Reply routes via `reply-to:` (fallback: `from:`).
+#     Constraint: `task-assignment` type MUST NOT set `expects-response: false`
+#     (task-complete reply is always implied). Warning emitted when used with `to: all`.
+#
+#   response-effort: XS | S | M | L | XL
+#     T-shirt sizing of expected receiver effort. Used by `otaman check` as a
+#     tiebreaker within the same priority band (cheapest first). Defaults are
+#     inferred from message type if absent.
+#
+#   response-deadline: <RFC-3339 with timezone>
+#     Wall-clock SLA for the reply. ONLY meaningful when a human is in the
+#     reply path (release windows, regulatory deadlines). Not meaningful for
+#     agent-to-agent traffic — use `response-effort` for AI-to-AI ordering.
+#     Example: 2026-06-04T18:00:00Z
 #
 # Body format: Markdown. MUST contain a `## Subject: <text>` heading.
 # ---------------------------------------------------------------------------
@@ -72,31 +89,49 @@ VALID_TYPES = {
 }
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
+VALID_RESPONSE_EFFORTS = {"XS", "S", "M", "L", "XL"}
 
 REQUIRED_FIELDS = {"id", "from", "to", "type", "timestamp"}
 
+# RFC 3339 / ISO-8601 with mandatory timezone offset or Z
+_RFC3339_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
+    r"(\.\d+)?"
+    r"(Z|[+-]\d{2}:\d{2})$"
+)
 
-def validate_message(filepath: Path, known_agents: set[str] | None = None) -> list[str]:
-    """Validate a single bus message file. Returns list of errors."""
+
+_BROADCAST_TYPES = frozenset({"contract-change", "emergency-halt", "agent-registry-change"})
+_REPLY_TO_PATTERN = re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
+
+
+def validate_message(
+    filepath: Path, known_agents: set[str] | None = None
+) -> tuple[list[str], list[str]]:
+    """Validate a single bus message file.
+
+    Returns (errors, warnings). Errors block the message; warnings are advisory.
+    """
     errors: list[str] = []
+    warnings: list[str] = []
 
     try:
         content = filepath.read_text(encoding="utf-8")
     except OSError as e:
-        return [f"Cannot read file: {e}"]
+        return [f"Cannot read file: {e}"], []
 
     # Parse frontmatter
     fm_match = re.match(r"^---\n(.+?)\n---", content, re.DOTALL)
     if not fm_match:
-        return ["Missing YAML frontmatter (expected --- ... --- at start of file)"]
+        return ["Missing YAML frontmatter (expected --- ... --- at start of file)"], []
 
     try:
         fm = yaml.safe_load(fm_match.group(1))
     except yaml.YAMLError as e:
-        return [f"Invalid YAML frontmatter: {e}"]
+        return [f"Invalid YAML frontmatter: {e}"], []
 
     if not isinstance(fm, dict):
-        return ["Frontmatter must be a YAML mapping"]
+        return ["Frontmatter must be a YAML mapping"], []
 
     # Required fields
     for field in REQUIRED_FIELDS:
@@ -118,25 +153,51 @@ def validate_message(filepath: Path, known_agents: set[str] | None = None) -> li
     if status and status not in ("pending", "read", "resolved"):
         errors.append(f"Unknown status: '{status}' (valid: pending, read, resolved)")
 
-    # reply-to: optional field for task-assignment messages
+    # reply-to: optional routing field
     reply_to = fm.get("reply-to")
     if reply_to is not None:
-        import re as _re
-        _REPLY_TO_PATTERN = _re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
         if not _REPLY_TO_PATTERN.match(str(reply_to)):
             errors.append(
                 f"Invalid reply-to: '{reply_to}' — must be an agent name "
                 "(e.g. 'core-agent') or 'human'"
             )
 
-    # Agent name validation
-    # Broadcast whitelist — only these types may use to: all
-    _BROADCAST_TYPES = frozenset({"contract-change", "emergency-halt", "agent-registry-change"})
+    # expects-response: optional boolean
+    expects_response = fm.get("expects-response")
+    if expects_response is not None:
+        if not isinstance(expects_response, bool):
+            errors.append(
+                f"Invalid expects-response: '{expects_response}' — must be a boolean (true or false)"
+            )
+        elif not expects_response and msg_type == "task-assignment":
+            errors.append(
+                "task-assignment messages implicitly require a task-complete reply; "
+                "setting expects-response: false is invalid"
+            )
+
+    # response-effort: optional enum
+    response_effort = fm.get("response-effort")
+    if response_effort is not None:
+        if str(response_effort) not in VALID_RESPONSE_EFFORTS:
+            errors.append(
+                f"Invalid response-effort: '{response_effort}' "
+                f"(valid: {', '.join(sorted(VALID_RESPONSE_EFFORTS))})"
+            )
+
+    # response-deadline: optional RFC 3339 with timezone
+    response_deadline = fm.get("response-deadline")
+    if response_deadline is not None:
+        if not _RFC3339_RE.match(str(response_deadline)):
+            errors.append(
+                f"Invalid response-deadline: '{response_deadline}' — "
+                "must be RFC 3339 / ISO-8601 with timezone (e.g. 2026-06-04T18:00:00Z)"
+            )
+
+    # to: field — agent name validation and broadcast whitelist
+    to_field = fm.get("to", "")
 
     if known_agents:
-        to_field = fm.get("to", "")
         if to_field and to_field not in ("all", "human"):
-            # Accept comma-separated agent list: "core-agent, cli-agent" or single name
             recipients = [r.strip() for r in to_field.split(",") if r.strip()]
             unknown = [r for r in recipients if r not in known_agents and r not in ("human", "all")]
             if unknown:
@@ -145,7 +206,6 @@ def validate_message(filepath: Path, known_agents: set[str] | None = None) -> li
                 )
 
     # Broadcast whitelist check (always; not gated on known_agents)
-    to_field = fm.get("to", "")
     msg_type = fm.get("type", "")
     if to_field == "all" and msg_type and msg_type not in _BROADCAST_TYPES:
         errors.append(
@@ -154,11 +214,12 @@ def validate_message(filepath: Path, known_agents: set[str] | None = None) -> li
             "Use a specific agent name or comma-separated list instead."
         )
 
-    if known_agents:
-        from_field = fm.get("from", "")
-        if from_field and from_field not in ("human",) and from_field not in known_agents:
-            # Allow repo names as senders (from post-commit hooks)
-            pass  # Don't error on unknown senders — hooks use repo names
+    # Warning: broadcast + expects-response: true is best-effort, not a strict contract
+    if to_field == "all" and expects_response is True:
+        warnings.append(
+            "broadcast with expects-response: true is best-effort; "
+            "verify you intend multi-response semantics"
+        )
 
     # Subject line check
     body = content.split("---", 2)[-1] if content.count("---") >= 2 else ""
@@ -169,7 +230,7 @@ def validate_message(filepath: Path, known_agents: set[str] | None = None) -> li
     if not has_subject:
         errors.append("Missing '## Subject:' line in message body")
 
-    return errors
+    return errors, warnings
 
 
 def load_known_agents(project_root: Path) -> set[str]:
@@ -227,19 +288,31 @@ def main() -> int:
     known_agents = load_known_agents(project_root) if project_root else set()
 
     total_errors = 0
+    total_warnings = 0
     for filepath in files_to_check:
-        errors = validate_message(filepath, known_agents)
+        errors, warnings = validate_message(filepath, known_agents)
         if errors:
             total_errors += len(errors)
+            total_warnings += len(warnings)
             print(f"INVALID: {filepath.name}")
             for err in errors:
-                print(f"  {err}")
+                print(f"  ERROR: {err}")
+            for warn in warnings:
+                print(f"  WARNING: {warn}")
+        elif warnings:
+            total_warnings += len(warnings)
+            print(f"WARNING: {filepath.name}")
+            for warn in warnings:
+                print(f"  WARNING: {warn}")
         else:
             print(f"OK: {filepath.name}")
 
     if total_errors:
-        print(f"\n{total_errors} error(s) in {len(files_to_check)} file(s)")
+        print(f"\n{total_errors} error(s), {total_warnings} warning(s) in {len(files_to_check)} file(s)")
         return 1
+    elif total_warnings:
+        print(f"\n0 errors, {total_warnings} warning(s) in {len(files_to_check)} file(s)")
+        return 0
     else:
         print(f"\nAll {len(files_to_check)} message(s) valid")
         return 0
