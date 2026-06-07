@@ -282,3 +282,139 @@ class TestResolveAndValidate:
             result = gh.resolve_and_validate(cfg, maestro_root=tmp_path)
         assert result.ok
         assert result.identity == "me"
+
+
+# ---------------------------------------------------------------------------
+# parse_remote_url with provider_hint (Gitea/Forgejo classification)
+
+
+class TestParseRemoteUrlWithProviderHint:
+    def test_self_hosted_gitea_with_hint(self):
+        info = gh.parse_remote_url(
+            "https://git.example.com/team/repo.git",
+            provider_hint="gitea",
+        )
+        assert info.provider == "gitea"
+        assert info.host == "git.example.com"
+        assert info.slug == "team/repo"
+        assert info.is_self_hosted
+
+    def test_self_hosted_forgejo_with_hint(self):
+        info = gh.parse_remote_url(
+            "git@codeberg.example.com:user/repo.git",
+            provider_hint="forgejo",
+        )
+        assert info.provider == "forgejo"
+        assert info.host == "codeberg.example.com"
+
+    def test_no_hint_falls_back_to_unknown(self):
+        info = gh.parse_remote_url("https://random.example.com/team/repo.git")
+        assert info.provider == "unknown"
+
+    def test_hint_does_not_override_known_saas(self):
+        """github.com classification wins even if hint says gitea."""
+        info = gh.parse_remote_url(
+            "https://github.com/o/r.git",
+            provider_hint="gitea",
+        )
+        assert info.provider == "github"
+
+    def test_invalid_hint_ignored(self):
+        info = gh.parse_remote_url(
+            "https://x.example/o/r.git",
+            provider_hint="not-a-real-provider",
+        )
+        assert info.provider == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# default_host_for — Gitea/Forgejo additions
+
+
+class TestDefaultHostFor:
+    def test_github(self):
+        assert gh.default_host_for("github") == "github.com"
+
+    def test_gitea_is_empty(self):
+        # Always self-hosted; no default public host.
+        assert gh.default_host_for("gitea") == ""
+
+    def test_forgejo_is_empty(self):
+        assert gh.default_host_for("forgejo") == ""
+
+
+# ---------------------------------------------------------------------------
+# GitHostConfig.org
+
+
+class TestGitHostConfigOrg:
+    def test_org_absent_defaults_to_none(self, monkeypatch):
+        monkeypatch.setenv("T", "x")
+        cfg = gh.GitHostConfig.from_dict({"provider": "github", "token": "T"})
+        assert cfg.org is None
+
+    def test_org_present(self, monkeypatch):
+        monkeypatch.setenv("T", "x")
+        cfg = gh.GitHostConfig.from_dict({
+            "provider": "github",
+            "token": "T",
+            "org": "inprimex",
+        })
+        assert cfg.org == "inprimex"
+
+    def test_org_empty_string_is_none(self, monkeypatch):
+        monkeypatch.setenv("T", "x")
+        cfg = gh.GitHostConfig.from_dict({
+            "provider": "github",
+            "token": "T",
+            "org": "",
+        })
+        assert cfg.org is None
+
+
+# ---------------------------------------------------------------------------
+# get_adapter routes Gitea/Forgejo
+
+
+class TestGetAdapterGitea:
+    def test_gitea_provider_returns_gitea_adapter(self, tmp_path, monkeypatch):
+        from otaman_core import git_host_gitea as ghgi
+        monkeypatch.setenv("T", "x")
+        cfg = gh.GitHostConfig.from_dict({
+            "provider": "gitea",
+            "host": "gitea.example.com",
+            "token": "T",
+        })
+        adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
+        assert isinstance(adapter, ghgi.GiteaAdapter)
+        assert adapter.provider == "gitea"
+
+    def test_forgejo_provider_returns_gitea_adapter(self, tmp_path, monkeypatch):
+        from otaman_core import git_host_gitea as ghgi
+        monkeypatch.setenv("T", "x")
+        cfg = gh.GitHostConfig.from_dict({
+            "provider": "forgejo",
+            "host": "codeberg.example.com",
+            "token": "T",
+        })
+        adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
+        assert isinstance(adapter, ghgi.GiteaAdapter)
+        assert adapter.provider == "forgejo"
+
+
+# ---------------------------------------------------------------------------
+# RepoInfo dataclass
+
+
+class TestRepoInfo:
+    def test_construction(self):
+        info = gh.RepoInfo(
+            name="my-service",
+            owner="inprimex",
+            clone_url="https://github.com/inprimex/my-service.git",
+            ssh_url="git@github.com:inprimex/my-service.git",
+            html_url="https://github.com/inprimex/my-service",
+            private=True,
+        )
+        assert info.name == "my-service"
+        assert info.private is True

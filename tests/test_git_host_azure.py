@@ -304,3 +304,69 @@ class TestFactory:
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghaz.AzureDevOpsAdapter)
         assert adapter.host == "dev.azure.com"
+
+
+# ---------------------------------------------------------------------------
+# Repo lifecycle (create_repo / delete_repo)
+from unittest.mock import patch as _patch
+
+
+def _az_repo_payload(**overrides):
+    base = {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "name": "my-service",
+        "remoteUrl": "https://dev.azure.com/myorg/myproject/_git/my-service",
+        "sshUrl": "git@ssh.dev.azure.com:v3/myorg/myproject/my-service",
+        "webUrl": "https://dev.azure.com/myorg/myproject/_git/my-service",
+        "project": {"id": "proj-uuid", "name": "myproject"},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestAzureCreateRepo:
+    def test_resolves_project_id_then_posts(self):
+        adapter = ghaz.AzureDevOpsAdapter(token="t")
+        responses = [
+            (200, json.dumps({"id": "proj-uuid", "name": "myproject"}).encode(), {}),
+            (201, json.dumps(_az_repo_payload()).encode(), {}),
+        ]
+        with _patch.object(adapter, "_request", side_effect=responses) as m:
+            info = adapter.create_repo("my-service", org="myorg/myproject")
+        first, second = m.call_args_list[0], m.call_args_list[1]
+        # 1st call: GET project; 2nd: POST repo
+        assert first.args[0] == "GET"
+        assert "/_apis/projects/myproject" in first.args[1]
+        assert second.args[0] == "POST"
+        assert "/_apis/git/repositories" in second.args[1]
+        assert second.kwargs["body"]["project"] == {"id": "proj-uuid"}
+        assert info.name == "my-service"
+        assert info.owner == "myorg/myproject"
+
+    def test_requires_org_with_slash(self):
+        adapter = ghaz.AzureDevOpsAdapter(token="t")
+        with pytest.raises(ValueError, match="organization/project"):
+            adapter.create_repo("my-service", org="just-org")
+        with pytest.raises(ValueError):
+            adapter.create_repo("my-service", org=None)
+
+
+class TestAzureDeleteRepo:
+    def test_resolves_id_then_deletes(self):
+        adapter = ghaz.AzureDevOpsAdapter(token="t")
+        responses = [
+            (200, json.dumps({"id": "repo-uuid", "name": "my-service"}).encode(), {}),
+            (204, b"", {}),
+        ]
+        with _patch.object(adapter, "_request", side_effect=responses) as m:
+            adapter.delete_repo("myorg/myproject", "my-service")
+        first, second = m.call_args_list[0], m.call_args_list[1]
+        assert first.args[0] == "GET"
+        assert "/_apis/git/repositories/my-service" in first.args[1]
+        assert second.args[0] == "DELETE"
+        assert second.args[1].endswith("/_apis/git/repositories/repo-uuid")
+
+    def test_requires_org_with_slash(self):
+        adapter = ghaz.AzureDevOpsAdapter(token="t")
+        with pytest.raises(ValueError):
+            adapter.delete_repo("just-org", "my-service")

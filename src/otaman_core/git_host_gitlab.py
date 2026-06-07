@@ -35,7 +35,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from otaman_core.git_host import Comment, GitHostError, PullRequest
+from otaman_core.git_host import Comment, GitHostError, PullRequest, RepoInfo
 
 
 _DEFAULT_UA = "otaman-plugin"
@@ -264,6 +264,57 @@ class GitLabAdapter:
         )
         return [_to_comment(item, slug, pr_number, self.host) for item in raw]
 
+    # ----- repo lifecycle -------------------------------------------------
+
+    def create_repo(
+        self,
+        name: str,
+        org: str | None,
+        private: bool = True,
+        description: str = "",
+    ) -> RepoInfo:
+        """Create a remote project. POST /api/v4/projects.
+
+        For org-owned repos, GitLab requires the numeric ``namespace_id``;
+        we resolve it from the group/user path via GET /namespaces?search=.
+        """
+        if not name.strip():
+            raise ValueError("repo name must be non-empty")
+        body: dict[str, Any] = {
+            "name": name,
+            "path": name,
+            "visibility": "private" if private else "public",
+            "description": description or "",
+        }
+        if org:
+            body["namespace_id"] = self._resolve_namespace_id(org)
+        data = self._post_json("/projects", body=body)
+        if not isinstance(data, dict):
+            raise GitHostError(
+                f"GitLab project POST returned {type(data).__name__}"
+            )
+        return _to_repo_info(data)
+
+    def delete_repo(self, owner: str, name: str) -> None:
+        """Delete a remote project. DELETE /api/v4/projects/{encoded path}."""
+        if not owner.strip() or not name.strip():
+            raise ValueError("owner and name must be non-empty")
+        pid = self._project_id(f"{owner}/{name}")
+        # GitLab returns 202 Accepted on async deletion.
+        status, body, _ = self._request("DELETE", f"/projects/{pid}")
+        if status not in (200, 202, 204):
+            raise self._http_error("DELETE", f"/projects/{pid}", status, body)
+
+    def _resolve_namespace_id(self, path: str) -> int:
+        """Resolve a group/user path (e.g. 'mygroup') to a numeric namespace id."""
+        encoded = urllib.parse.quote(path, safe="")
+        data, _ = self._get_json(f"/namespaces/{encoded}")
+        if not isinstance(data, dict) or "id" not in data:
+            raise GitHostError(
+                f"GitLab namespace {path!r} not found or unreadable"
+            )
+        return int(data["id"])
+
 
 # ---------------------------------------------------------------------------
 # Payload → dataclass mappers
@@ -292,6 +343,20 @@ def _to_pr(raw: dict[str, Any], slug: str) -> PullRequest:
         body=str(raw.get("description") or ""),
         draft=bool(raw.get("draft") or raw.get("work_in_progress") or False),
         raw=raw,
+    )
+
+
+def _to_repo_info(raw: dict[str, Any]) -> RepoInfo:
+    namespace = raw.get("namespace") or {}
+    owner = str(namespace.get("full_path") or namespace.get("path") or "")
+    visibility = str(raw.get("visibility") or "").lower()
+    return RepoInfo(
+        name=str(raw.get("path") or raw.get("name") or ""),
+        owner=owner,
+        clone_url=str(raw.get("http_url_to_repo") or ""),
+        ssh_url=str(raw.get("ssh_url_to_repo") or ""),
+        html_url=str(raw.get("web_url") or ""),
+        private=visibility != "public",
     )
 
 

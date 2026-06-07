@@ -13,6 +13,8 @@ Providers recognized:
                     the URL shape but has a different REST base — we
                     flag the cloud vs server distinction when known
   - azure-devops  — dev.azure.com / visualstudio.com
+  - gitea         — self-hosted Gitea instances (always self-hosted)
+  - forgejo       — self-hosted Forgejo instances (Gitea-compatible API)
   - unknown       — couldn't classify; no integration possible
 
 Token storage uses the existing ``_secrets`` chain (env → dotenv →
@@ -87,12 +89,19 @@ _RE_AZDO_PATH = re.compile(
 )
 
 
-def parse_remote_url(url: str) -> RemoteInfo | None:
+def parse_remote_url(url: str, *, provider_hint: Provider | None = None) -> RemoteInfo | None:
     """Classify a remote URL. Returns None if the URL doesn't parse.
 
     Accepts the three common shapes (legacy SSH, SSH URL, HTTPS) plus
     Azure DevOps's quirky ``/_git/`` path. Silent on garbage input so
     callers can use this for best-effort classification.
+
+    ``provider_hint`` lets callers tell us which provider a self-hosted
+    host belongs to (typically from ``platform.yaml`` ``git_host.provider:``).
+    Used for self-hosted Gitea/Forgejo instances whose hostnames aren't
+    classifiable by pattern alone. The hint only applies when the URL
+    host doesn't match a known SaaS pattern; it never overrides github.com,
+    gitlab.com, etc.
     """
     url = (url or "").strip()
     if not url:
@@ -100,17 +109,19 @@ def parse_remote_url(url: str) -> RemoteInfo | None:
 
     m = _RE_SSH_LEGACY.match(url)
     if m:
-        return _classify(m.group("host"), m.group("path"), url)
+        return _classify(m.group("host"), m.group("path"), url, provider_hint)
     m = _RE_SSH_URL.match(url)
     if m:
-        return _classify(m.group("host"), m.group("path"), url)
+        return _classify(m.group("host"), m.group("path"), url, provider_hint)
     m = _RE_HTTPS.match(url)
     if m:
-        return _classify(m.group("host"), m.group("path"), url)
+        return _classify(m.group("host"), m.group("path"), url, provider_hint)
     return None
 
 
-def _classify(host: str, path: str, raw_url: str) -> RemoteInfo:
+def _classify(
+    host: str, path: str, raw_url: str, provider_hint: Provider | None = None,
+) -> RemoteInfo:
     host = host.strip().lower()
     path = path.strip().strip("/").removesuffix(".git")
 
@@ -134,10 +145,13 @@ def _classify(host: str, path: str, raw_url: str) -> RemoteInfo:
     elif host == "bitbucket.org":
         provider = "bitbucket"
     else:
-        # Self-hosted instance. Host alone doesn't identify the
-        # flavour; we fall back to "unknown" and let the user tell
-        # us via ``otaman git-host add --provider ...``.
-        provider = "unknown"
+        # Self-hosted instance. Host alone doesn't identify the flavour
+        # (Gitea/Forgejo can live anywhere). Fall back to the caller's
+        # provider hint if supplied; otherwise "unknown".
+        if provider_hint in ("gitea", "forgejo", "github", "gitlab", "bitbucket", "azure-devops"):
+            provider = provider_hint
+        else:
+            provider = "unknown"
 
     parts = path.split("/", 1)
     if len(parts) != 2:
@@ -218,6 +232,7 @@ class GitHostConfig:
     host: str
     token_ref: SecretRef
     default_scope: list[str]
+    org: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GitHostConfig":
@@ -232,11 +247,14 @@ class GitHostConfig:
         scope_raw = data.get("default_scope") or []
         if not isinstance(scope_raw, list):
             raise ValueError("git_host: default_scope must be a list")
+        org_raw = data.get("org")
+        org = str(org_raw).strip() if org_raw else None
         return cls(
             provider=provider,
             host=host,
             token_ref=token_ref,
             default_scope=[str(s).strip().lower() for s in scope_raw if s],
+            org=org or None,
         )
 
 
@@ -246,6 +264,8 @@ def default_host_for(provider: Provider) -> str:
         "gitlab": "gitlab.com",
         "bitbucket": "bitbucket.org",
         "azure-devops": "dev.azure.com",
+        "gitea": "",       # always self-hosted; host: required in platform.yaml
+        "forgejo": "",     # same
     }.get(provider, "")
 
 
@@ -457,6 +477,23 @@ class Comment:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class RepoInfo:
+    """Cross-provider view of a remote git repository.
+
+    Returned by ``GitHostAdapter.create_repo`` and used by callers that
+    need to clone the freshly-created repo or persist its URLs in
+    platform.yaml.
+    """
+
+    name: str
+    owner: str          # org or user that owns the repo
+    clone_url: str      # HTTPS clone URL (https://host/owner/repo.git)
+    ssh_url: str        # SSH clone URL (git@host:owner/repo.git)
+    html_url: str       # web URL for humans
+    private: bool
+
+
 class GitHostAdapter(Protocol):
     """Provider-agnostic PR read + comment write surface.
 
@@ -483,6 +520,17 @@ class GitHostAdapter(Protocol):
     def list_comments(
         self, slug: str, pr_number: int,
     ) -> list[Comment]: ...
+
+    # Repo lifecycle — used by `otaman project add` / `otaman project remove --delete-remote`
+    def create_repo(
+        self,
+        name: str,
+        org: str | None,
+        private: bool = True,
+        description: str = "",
+    ) -> RepoInfo: ...
+
+    def delete_repo(self, owner: str, name: str) -> None: ...
 
 
 class GitHostError(RuntimeError):
@@ -527,8 +575,11 @@ def get_adapter(
     if cfg.provider == "azure-devops":
         from otaman_core.git_host_azure import AzureDevOpsAdapter  # noqa: PLC0415
         return AzureDevOpsAdapter(host=cfg.host, token=token)
+    if cfg.provider in ("gitea", "forgejo"):
+        from otaman_core.git_host_gitea import GiteaAdapter  # noqa: PLC0415
+        return GiteaAdapter(host=cfg.host, token=token, provider=cfg.provider)
 
     raise GitHostError(
         f"unknown provider {cfg.provider!r}. "
-        f"Supported: github, gitlab, bitbucket, azure-devops."
+        f"Supported: github, gitlab, bitbucket, azure-devops, gitea, forgejo."
     )

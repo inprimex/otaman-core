@@ -41,7 +41,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from otaman_core.git_host import Comment, GitHostError, PullRequest
+from otaman_core.git_host import Comment, GitHostError, PullRequest, RepoInfo
 
 
 _DEFAULT_UA = "otaman-plugin"
@@ -328,6 +328,94 @@ class AzureDevOpsAdapter:
                 out.append(_to_comment(c, slug, pr_number, thread_id, self.host))
         return out
 
+    # ----- repo lifecycle -------------------------------------------------
+
+    def create_repo(
+        self,
+        name: str,
+        org: str | None,
+        private: bool = True,
+        description: str = "",
+    ) -> RepoInfo:
+        """Create a remote repo. POST /{org}/{project}/_apis/git/repositories.
+
+        Azure's three-tier model means ``org`` here MUST be ``"organization/project"``.
+        Private/public visibility is configured at project level on Azure DevOps,
+        not per-repo — the ``private`` flag is accepted but does not control
+        visibility (it's reflected on the returned ``RepoInfo`` for symmetry).
+        ``description`` is accepted but Azure DevOps does not expose a per-repo
+        description field via this API; the value is ignored.
+        """
+        if not name.strip():
+            raise ValueError("repo name must be non-empty")
+        if not org or "/" not in org:
+            raise ValueError(
+                "Azure DevOps requires --org in 'organization/project' form"
+            )
+        org_name, project = org.split("/", 1)
+        project_id = self._resolve_project_id(org_name, project)
+        url = (
+            f"https://{self.host}/{urllib.parse.quote(org_name)}"
+            f"/{urllib.parse.quote(project)}/_apis/git/repositories"
+        )
+        body: dict[str, Any] = {
+            "name": name,
+            "project": {"id": project_id},
+        }
+        data = self._post_json(url, body=body, expected_status=201)
+        if not isinstance(data, dict):
+            raise GitHostError(
+                f"Azure DevOps repo POST returned {type(data).__name__}"
+            )
+        return _to_repo_info(data, self.host, org_name, project, private)
+
+    def delete_repo(self, owner: str, name: str) -> None:
+        """Delete a remote repo. DELETE /{org}/{project}/_apis/git/repositories/{id}.
+
+        ``owner`` MUST be ``"organization/project"``.
+        """
+        if not owner or "/" not in owner:
+            raise ValueError(
+                "Azure DevOps delete_repo requires owner in 'organization/project' form"
+            )
+        if not name.strip():
+            raise ValueError("name must be non-empty")
+        org_name, project = owner.split("/", 1)
+        repo_id = self._resolve_repo_id(org_name, project, name)
+        url = (
+            f"https://{self.host}/{urllib.parse.quote(org_name)}"
+            f"/{urllib.parse.quote(project)}/_apis/git/repositories/{repo_id}"
+        )
+        status, body, _ = self._request("DELETE", url)
+        if status not in (200, 204):
+            raise self._http_error("DELETE", url, status, body)
+
+    def _resolve_project_id(self, org_name: str, project: str) -> str:
+        """GET /{org}/_apis/projects/{project} → project.id (UUID)."""
+        url = (
+            f"https://{self.host}/{urllib.parse.quote(org_name)}"
+            f"/_apis/projects/{urllib.parse.quote(project)}"
+        )
+        data, _ = self._get_json(url)
+        if not isinstance(data, dict) or "id" not in data:
+            raise GitHostError(
+                f"Azure DevOps project {org_name}/{project} not found"
+            )
+        return str(data["id"])
+
+    def _resolve_repo_id(self, org_name: str, project: str, name: str) -> str:
+        """GET /{org}/{project}/_apis/git/repositories/{name} → repo.id."""
+        url = (
+            f"https://{self.host}/{urllib.parse.quote(org_name)}"
+            f"/{urllib.parse.quote(project)}/_apis/git/repositories/{urllib.parse.quote(name)}"
+        )
+        data, _ = self._get_json(url)
+        if not isinstance(data, dict) or "id" not in data:
+            raise GitHostError(
+                f"Azure DevOps repo {org_name}/{project}/{name} not found"
+            )
+        return str(data["id"])
+
 
 # ---------------------------------------------------------------------------
 # Payload → dataclass mappers
@@ -385,6 +473,32 @@ def _to_pr(raw: dict[str, Any], host: str) -> PullRequest:
         body=str(raw.get("description") or ""),
         draft=bool(raw.get("isDraft") or False),
         raw=raw,
+    )
+
+
+def _to_repo_info(
+    raw: dict[str, Any],
+    host: str,
+    org_name: str,
+    project: str,
+    private: bool,
+) -> RepoInfo:
+    name = str(raw.get("name") or "")
+    remote_url = str(raw.get("remoteUrl") or raw.get("webUrl") or "")
+    ssh_url = str(raw.get("sshUrl") or "")
+    web_url = str(raw.get("webUrl") or "")
+    if not web_url and name:
+        web_url = (
+            f"https://{host}/{urllib.parse.quote(org_name)}"
+            f"/{urllib.parse.quote(project)}/_git/{urllib.parse.quote(name)}"
+        )
+    return RepoInfo(
+        name=name,
+        owner=f"{org_name}/{project}",
+        clone_url=remote_url,
+        ssh_url=ssh_url,
+        html_url=web_url,
+        private=private,
     )
 
 
