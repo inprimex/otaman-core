@@ -341,3 +341,70 @@ class TestFactory:
         })
         with pytest.raises(gh.GitHostError, match="unknown provider"):
             gh.get_adapter(cfg, maestro_root=tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Repo lifecycle (create_repo / delete_repo)
+
+
+def _repo_payload(**overrides):
+    base = {
+        "name": "my-service",
+        "owner": {"login": "inprimex"},
+        "clone_url": "https://github.com/inprimex/my-service.git",
+        "ssh_url": "git@github.com:inprimex/my-service.git",
+        "html_url": "https://github.com/inprimex/my-service",
+        "private": True,
+    }
+    base.update(overrides)
+    return base
+
+
+class TestCreateRepo:
+    def test_user_repo(self, adapter):
+        with patch.object(adapter, "_request") as m:
+            m.return_value = _mock_response(status=201, body=_repo_payload())
+            info = adapter.create_repo("my-service", org=None)
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "POST"
+        assert path == "/user/repos"
+        assert info.name == "my-service"
+        assert info.owner == "inprimex"
+        assert info.private is True
+        assert info.clone_url.endswith(".git")
+
+    def test_org_repo(self, adapter):
+        with patch.object(adapter, "_request") as m:
+            m.return_value = _mock_response(status=201, body=_repo_payload())
+            adapter.create_repo("my-service", org="inprimex", private=False)
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "POST"
+        assert path == "/orgs/inprimex/repos"
+
+    def test_empty_name_rejected(self, adapter):
+        with pytest.raises(ValueError):
+            adapter.create_repo("", org=None)
+
+
+class TestDeleteRepo:
+    def test_happy_path(self, adapter):
+        with patch.object(adapter, "_request") as m:
+            m.return_value = _mock_response(status=204, body=b"")
+            adapter.delete_repo("inprimex", "my-service")
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "DELETE"
+        assert path == "/repos/inprimex/my-service"
+
+    def test_404_raises(self, adapter):
+        with patch.object(adapter, "_request") as m:
+            m.return_value = _mock_response(
+                status=404, body={"message": "Not Found"},
+            )
+            with pytest.raises(gh.GitHostError):
+                adapter.delete_repo("o", "r")
+
+    def test_empty_args_rejected(self, adapter):
+        with pytest.raises(ValueError):
+            adapter.delete_repo("", "r")
+        with pytest.raises(ValueError):
+            adapter.delete_repo("o", "")

@@ -35,7 +35,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from otaman_core.git_host import Comment, GitHostError, PullRequest
+from otaman_core.git_host import Comment, GitHostError, PullRequest, RepoInfo
 
 
 _DEFAULT_UA = "otaman-plugin"
@@ -270,6 +270,56 @@ class BitbucketAdapter:
         )
         return [_to_comment(item) for item in raw]
 
+    # ----- repo lifecycle -------------------------------------------------
+
+    def create_repo(
+        self,
+        name: str,
+        org: str | None,
+        private: bool = True,
+        description: str = "",
+    ) -> RepoInfo:
+        """Create a remote repo. POST /2.0/repositories/{workspace}/{slug}.
+
+        ``org`` is the Bitbucket workspace and is REQUIRED — Bitbucket Cloud
+        doesn't have a user-owned-repo concept anymore; everything lives
+        under a workspace.
+        """
+        if not name.strip():
+            raise ValueError("repo name must be non-empty")
+        if not org or not org.strip():
+            raise ValueError(
+                "Bitbucket requires --org (workspace) when creating a repo"
+            )
+        workspace = org.strip()
+        slug = name.lower()  # Bitbucket repo slugs are lowercase
+        body: dict[str, Any] = {
+            "scm": "git",
+            "name": name,
+            "is_private": private,
+            "description": description or "",
+        }
+        data = self._post_json(
+            f"/repositories/{workspace}/{slug}",
+            body=body,
+            expected_status=200,  # Bitbucket returns 200 on create, not 201
+        )
+        if not isinstance(data, dict):
+            raise GitHostError(
+                f"Bitbucket repo POST returned {type(data).__name__}"
+            )
+        return _to_repo_info(data)
+
+    def delete_repo(self, owner: str, name: str) -> None:
+        """Delete a remote repo. DELETE /2.0/repositories/{workspace}/{slug}."""
+        if not owner.strip() or not name.strip():
+            raise ValueError("owner and name must be non-empty")
+        slug = name.lower()
+        path = f"/repositories/{owner}/{slug}"
+        status, body, _ = self._request("DELETE", path)
+        if status not in (200, 204):
+            raise self._http_error("DELETE", path, status, body)
+
 
 # ---------------------------------------------------------------------------
 # Payload → dataclass mappers
@@ -305,6 +355,40 @@ def _to_pr(raw: dict[str, Any]) -> PullRequest:
         body=str(raw.get("summary", {}).get("raw") or raw.get("description") or ""),
         draft=bool(raw.get("draft") or False),
         raw=raw,
+    )
+
+
+def _to_repo_info(raw: dict[str, Any]) -> RepoInfo:
+    full_name = str(raw.get("full_name") or "")
+    workspace = ""
+    slug = str(raw.get("name") or "")
+    if "/" in full_name:
+        workspace, slug_part = full_name.split("/", 1)
+        if slug_part:
+            slug = slug_part
+    else:
+        ws = raw.get("workspace") or {}
+        workspace = str(ws.get("slug") or ws.get("name") or "")
+    links = raw.get("links") or {}
+    html = (links.get("html") or {}).get("href", "")
+    # Bitbucket lists clone URLs as ``[{name: "https", href: ...}, {name: "ssh", ...}]``
+    clones = (links.get("clone") or [])
+    clone_https = ""
+    clone_ssh = ""
+    for entry in clones:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("name") == "https":
+            clone_https = str(entry.get("href") or "")
+        elif entry.get("name") == "ssh":
+            clone_ssh = str(entry.get("href") or "")
+    return RepoInfo(
+        name=slug,
+        owner=workspace,
+        clone_url=clone_https,
+        ssh_url=clone_ssh,
+        html_url=str(html or ""),
+        private=bool(raw.get("is_private") or False),
     )
 
 

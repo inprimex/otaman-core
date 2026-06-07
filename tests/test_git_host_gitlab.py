@@ -276,3 +276,79 @@ class TestFactory:
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert adapter.host == "gitlab.mycorp.io"
         assert adapter.api_base == "https://gitlab.mycorp.io/api/v4"
+
+
+# ---------------------------------------------------------------------------
+# Repo lifecycle (create_repo / delete_repo)
+from unittest.mock import patch as _patch
+
+
+def _gl_repo_payload(**overrides):
+    base = {
+        "id": 99,
+        "name": "my-service",
+        "path": "my-service",
+        "namespace": {"full_path": "mygroup", "path": "mygroup", "id": 17},
+        "http_url_to_repo": "https://gitlab.com/mygroup/my-service.git",
+        "ssh_url_to_repo": "git@gitlab.com:mygroup/my-service.git",
+        "web_url": "https://gitlab.com/mygroup/my-service",
+        "visibility": "private",
+    }
+    base.update(overrides)
+    return base
+
+
+class TestGitLabCreateRepo:
+    def test_user_repo_no_namespace(self):
+        adapter = ghgl.GitLabAdapter(host="gitlab.com", token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (201, json.dumps(_gl_repo_payload()).encode(), {})
+            info = adapter.create_repo("my-service", org=None)
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "POST"
+        assert path == "/projects"
+        assert "namespace_id" not in m.call_args.kwargs["body"]
+        assert info.name == "my-service"
+        assert info.owner == "mygroup"
+        assert info.private is True
+
+    def test_org_repo_resolves_namespace(self):
+        adapter = ghgl.GitLabAdapter(host="gitlab.com", token="t")
+        responses = [
+            (200, json.dumps({"id": 17, "full_path": "mygroup"}).encode(), {}),
+            (201, json.dumps(_gl_repo_payload()).encode(), {}),
+        ]
+        with _patch.object(adapter, "_request", side_effect=responses) as m:
+            adapter.create_repo("my-service", org="mygroup", private=False)
+        # First call: GET /namespaces/mygroup; second: POST /projects
+        first, second = m.call_args_list[0], m.call_args_list[1]
+        assert first.args[0] == "GET"
+        assert first.args[1] == "/namespaces/mygroup"
+        assert second.args[0] == "POST"
+        assert second.args[1] == "/projects"
+        assert second.kwargs["body"]["namespace_id"] == 17
+        assert second.kwargs["body"]["visibility"] == "public"
+
+    def test_empty_name_rejected(self):
+        adapter = ghgl.GitLabAdapter(host="gitlab.com", token="t")
+        with pytest.raises(ValueError):
+            adapter.create_repo("", org=None)
+
+
+class TestGitLabDeleteRepo:
+    def test_happy_path(self):
+        adapter = ghgl.GitLabAdapter(host="gitlab.com", token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (202, b"", {})
+            adapter.delete_repo("mygroup", "my-service")
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "DELETE"
+        # Encoded "mygroup/my-service"
+        assert path == "/projects/mygroup%2Fmy-service"
+
+    def test_404_raises(self):
+        adapter = ghgl.GitLabAdapter(host="gitlab.com", token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (404, json.dumps({"message": "Not Found"}).encode(), {})
+            with pytest.raises(gh.GitHostError):
+                adapter.delete_repo("o", "r")

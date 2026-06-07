@@ -169,7 +169,7 @@ properties:
     properties:
       provider:
         type: string
-        enum: [github, gitlab, bitbucket, azure-devops]
+        enum: [github, gitlab, bitbucket, azure-devops, gitea, forgejo]
         description: "Git host provider. Drives which adapter loads in scripts/git_host_<provider>.py."
       host:
         type: string
@@ -229,6 +229,9 @@ properties:
         items:
           type: string
         description: "Documents intended scope (read, write, etc.) — informational, not enforced."
+      org:
+        type: string
+        description: "Default org/namespace for new repos created via `otaman project add`. Optional."
     description: "Git host PR/MR API integration (Phase 7). Enables `otaman git-host pr|post-review`."
 
   git_platform:

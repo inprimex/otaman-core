@@ -251,3 +251,74 @@ class TestFactory:
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghbb.BitbucketAdapter)
         assert adapter.host == "bitbucket.org"
+
+
+# ---------------------------------------------------------------------------
+# Repo lifecycle (create_repo / delete_repo)
+from unittest.mock import patch as _patch
+
+
+def _bb_repo_payload(**overrides):
+    base = {
+        "name": "my-service",
+        "full_name": "myteam/my-service",
+        "is_private": True,
+        "workspace": {"slug": "myteam", "name": "MyTeam"},
+        "links": {
+            "html": {"href": "https://bitbucket.org/myteam/my-service"},
+            "clone": [
+                {"name": "https", "href": "https://bitbucket.org/myteam/my-service.git"},
+                {"name": "ssh", "href": "git@bitbucket.org:myteam/my-service.git"},
+            ],
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+class TestBitbucketCreateRepo:
+    def test_org_repo(self):
+        adapter = ghbb.BitbucketAdapter(token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (200, json.dumps(_bb_repo_payload()).encode(), {})
+            info = adapter.create_repo("My-Service", org="myteam", private=True)
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "POST"
+        # Workspace must be preserved; slug is lowercased
+        assert path == "/repositories/myteam/my-service"
+        assert m.call_args.kwargs["body"]["is_private"] is True
+        assert info.name == "my-service"
+        assert info.owner == "myteam"
+        assert info.private is True
+        assert info.clone_url.endswith(".git")
+        assert info.ssh_url.startswith("git@")
+
+    def test_requires_workspace(self):
+        adapter = ghbb.BitbucketAdapter(token="t")
+        with pytest.raises(ValueError, match="workspace"):
+            adapter.create_repo("my-service", org=None)
+
+    def test_empty_name_rejected(self):
+        adapter = ghbb.BitbucketAdapter(token="t")
+        with pytest.raises(ValueError):
+            adapter.create_repo("", org="myteam")
+
+
+class TestBitbucketDeleteRepo:
+    def test_happy_path(self):
+        adapter = ghbb.BitbucketAdapter(token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (204, b"", {})
+            adapter.delete_repo("myteam", "My-Service")
+        method, path = m.call_args.args[0], m.call_args.args[1]
+        assert method == "DELETE"
+        assert path == "/repositories/myteam/my-service"
+
+    def test_404_raises(self):
+        adapter = ghbb.BitbucketAdapter(token="t")
+        with _patch.object(adapter, "_request") as m:
+            m.return_value = (
+                404, json.dumps({"error": {"message": "Not Found"}}).encode(), {},
+            )
+            with pytest.raises(gh.GitHostError):
+                adapter.delete_repo("o", "r")
