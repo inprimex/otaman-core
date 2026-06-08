@@ -86,6 +86,17 @@ VALID_TYPES = {
     "post-commit-review",
     "emergency-halt",
     "agent-registry-change",
+    # auto-session-spawn-on-bus-events §Q4
+    "request-human-review",
+    "human-decision",
+    # outcome-and-solution-registries Appendix F.3 + G
+    "outcome-estimate-requested",
+    "outcome-estimates-ready",
+    "outcome-cost-accepted",
+    "outcome-cost-rejected",
+    "outcome-status-changed",
+    "solution-status-changed",
+    "solution-recommendation",
 }
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}

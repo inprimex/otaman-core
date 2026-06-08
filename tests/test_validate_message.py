@@ -263,6 +263,27 @@ class TestBackwardsCompatibility:
         assert warnings == []
 
 
+class TestNewMessageTypes:
+    """Allowlist sync for types added by shipped spec changes (2026-06-07)."""
+
+    NEW_TYPES = [
+        "request-human-review",
+        "human-decision",
+        "outcome-estimate-requested",
+        "outcome-estimates-ready",
+        "outcome-cost-accepted",
+        "outcome-cost-rejected",
+        "outcome-status-changed",
+        "solution-status-changed",
+        "solution-recommendation",
+    ]
+
+    def test_each_type_accepted(self, tmp_path):
+        for t in self.NEW_TYPES:
+            errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(type=t)))
+            assert errors == [], f"Expected {t!r} to validate, got errors: {errors}"
+
+
 class TestMarkerAgentField:
     def test_agent_field_parsed(self, tmp_path):
         from otaman_core._resolve import parse_marker_fields
