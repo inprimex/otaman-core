@@ -1,0 +1,83 @@
+# CE platform.yaml — output of `otaman onboard program-init` wizard,
+# plus bus / terminal / runner / agent_presence root keys added by
+# bus-cc-routing, ce-org-agent-bootstrap, and agent-status-presence.
+#
+# Pinned as a schema-drift fixture so that future regressions where a new
+# top-level key sneaks in without schema support are caught at PR time.
+
+project: example-ce
+description: "Example CE program covering all post-2026-06 root keys"
+version: "1.0"
+edition: ce
+mode: 1
+domains:
+  - software-development
+  - healthcare
+roles:
+  - CPO
+  - CTO
+  - BA
+  - engineer
+releases:
+  - POC
+  - MVP
+currency:
+  code: USD
+  symbol: $
+  decimal_places: 2
+triage:
+  probability_scale: t-shirt
+  impact_scale: t-shirt
+skills:
+  profile: healthcare-default
+  extra: []
+
+repos:
+  - name: example-specs
+    path: ./example-specs
+    owner: spec-agent
+  - name: example-business
+    path: ./example-business
+    owner: cpo-agent
+
+agent_presence: true
+
+agents:
+  - name: spec-agent
+    enabled: true
+  - name: cpo-agent
+    enabled: true
+
+bus:
+  routing_rules:
+    - when:
+        to: human
+      cc:
+        - spec-agent
+    - when:
+        to: human
+        priority: [high, urgent]
+      cc:
+        - cofounder-agent
+  transport:
+    type: file
+    opts: {}
+
+terminal:
+  interactive: true
+  audit_keystrokes: false
+  ring_buffer_kb: 64
+  session_token_ttl: 3600
+
+runner:
+  agent_bootstrap:
+    mcp_config: ".mcp.json"
+    system_prompt_append: "CLAUDE.md"
+  harnesses:
+    - id: claude-code
+      binary: claude
+      min_version: "2.0"
+
+orgs:
+  example-ce:
+    display_name: "Example CE"
