@@ -583,3 +583,214 @@ properties:
         description: >
           Named effort tiers mapping size label to relative cost multiplier
           (e.g., S: 0.5, M: 1.0, L: 2.0, XL: 4.0). Used by the estimator.
+
+  # ---------------------------------------------------------------------------
+  # bus-cc-routing (PR #50)
+  #
+  # Top-level `bus:` block governs message routing rules and the bus transport.
+  bus:
+    type: object
+    additionalProperties: true   # spec still evolving; permissive at root
+    description: "Bus routing + transport config (bus-cc-routing)."
+    properties:
+      routing_rules:
+        type: array
+        description: "CC rules applied to messages matching `when:` clauses."
+        items:
+          type: object
+          additionalProperties: true
+          properties:
+            when:
+              type: object
+              additionalProperties: true
+              description: "Match clauses (e.g., `to:`, `priority:`, `type:`)."
+            cc:
+              type: array
+              items:
+                type: string
+              description: "Agents to CC when the `when:` clauses match."
+      transport:
+        type: object
+        additionalProperties: true
+        description: >
+          Bus transport selection. CE: file-based (default). EE: nats-kv,
+          redis, etc. Shape evolves with the transport plugin contract.
+
+  # ---------------------------------------------------------------------------
+  # otaman-remote-terminal / ce-org-agent-bootstrap
+  #
+  # Top-level `terminal:` carries operator-facing terminal settings for the
+  # bridge/web terminal (interactive, audit, auth) and bootstrap-emitted CE keys.
+  terminal:
+    type: object
+    additionalProperties: true   # spec evolving; permissive
+    description: "Terminal/bridge runtime configuration (otaman-remote-terminal)."
+
+  # ---------------------------------------------------------------------------
+  # ce-org-agent-bootstrap / ce-bootstrap-harness-deps
+  #
+  # Top-level `runner:` carries runner-side bootstrap config: agent_bootstrap
+  # injection paths, harness binary verifications, etc.
+  runner:
+    type: object
+    additionalProperties: true   # spec evolving; permissive
+    description: "Runner runtime configuration (ce-org-agent-bootstrap, ce-bootstrap-harness-deps)."
+    properties:
+      agent_bootstrap:
+        type: object
+        additionalProperties: true
+        description: >
+          Bootstrap injection paths (paths relative to platform.yaml's dir).
+          Used by the runner when spawning Claude Code sessions.
+        properties:
+          mcp_config:
+            type: string
+            description: "Path to .mcp.json (forwarded as `claude --mcp-config <path>`)."
+          system_prompt_append:
+            type: string
+            description: "Path to CLAUDE.md or similar (forwarded as `--append-system-prompt`)."
+      harnesses:
+        type: array
+        description: "Harness binary declarations (ce-bootstrap-harness-deps)."
+        items:
+          type: object
+          additionalProperties: true
+          properties:
+            id:
+              type: string
+            binary:
+              type: string
+            min_version:
+              type: string
+
+  # ---------------------------------------------------------------------------
+  # agent-status-presence
+  #
+  # Top-level `agent_presence:` feature switch (boolean). When false, all
+  # status writes/reads are no-ops fleet-wide.
+  agent_presence:
+    type: boolean
+    default: true
+    description: >
+      agent-status-presence feature switch. Default true. False = all
+      status writes/reads no-op fleet-wide.
+
+  # ---------------------------------------------------------------------------
+  # agent-status-presence / otaman-init-dev-scaffold
+  #
+  # Top-level `agents:` registry. Two known shapes coexist while the spec
+  # converges: (a) array of {name, enabled} from otaman-init-dev-scaffold;
+  # (b) mapping {agent_name: {owns, role, ...}} from program-companion-repos-scaffold.
+  # Accept both via oneOf.
+  agents:
+    oneOf:
+      - type: array
+        items:
+          type: object
+          additionalProperties: true
+          properties:
+            name:
+              type: string
+            enabled:
+              type: boolean
+      - type: object
+        additionalProperties: true
+    description: "Agent registry. Array form (otaman-init) OR mapping form (program-companion)."
+
+  # ---------------------------------------------------------------------------
+  # Multi-org future specs
+  #
+  # Top-level `orgs:` mapping org-slug -> object. Permissive while specs evolve.
+  orgs:
+    type: object
+    additionalProperties: true
+    description: "Multi-org runtime mapping (placeholder; shape evolving)."
+
+  # ---------------------------------------------------------------------------
+  # otaman-onboarding-cli-program-init wizard output
+  #
+  # The program-init wizard writes these top-level keys directly. They are
+  # currently failing validation on live projects (e.g., ehrbridge). All
+  # accepted permissively here so wizard output validates clean.
+  description:
+    type: string
+    description: "Program description (program-init wizard output)."
+
+  edition:
+    type: string
+    enum: [ce, ee, pe]
+    description: "Otaman edition this program targets. CE = community."
+
+  mode:
+    type: integer
+    minimum: 1
+    description: "Program mode tier (1 = dev, 2 = strategy/cofounder, ...)."
+
+  domains:
+    type: array
+    items:
+      type: string
+    description: "Program domain tags (e.g., software-development, healthcare)."
+
+  roles:
+    type: array
+    description: >
+      Role list. Wizard emits flat strings (['CPO', 'CTO', ...]); the program:
+      block also has a structured `program.roles[]` (objects with id/name).
+      Accept both shapes here so the wizard output validates and the structured
+      form is consumed by the strategy registries.
+    items:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: true
+
+  releases:
+    type: array
+    description: >
+      Release list (wizard emits flat strings; program: block has structured
+      objects). Both shapes accepted at root for backwards compat.
+    items:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: true
+
+  currency:
+    type: object
+    additionalProperties: false
+    description: "Program currency settings (program-init wizard)."
+    properties:
+      code:
+        type: string
+        description: "ISO 4217 currency code (e.g., USD, EUR)."
+      symbol:
+        type: string
+        description: "Currency symbol (e.g., $, €)."
+      decimal_places:
+        type: integer
+        minimum: 0
+        maximum: 4
+
+  triage:
+    type: object
+    additionalProperties: true
+    description: "Triage scale configuration (program-init wizard)."
+    properties:
+      probability_scale:
+        type: string
+      impact_scale:
+        type: string
+
+  skills:
+    type: object
+    additionalProperties: true
+    description: "Skills profile (program-init wizard)."
+    properties:
+      profile:
+        type: string
+        description: "Named skills profile (e.g., healthcare-default)."
+      extra:
+        type: array
+        items:
+          type: string
