@@ -598,12 +598,31 @@ properties:
         description: "CC rules applied to messages matching `when:` clauses."
         items:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          required: [when, cc]
           properties:
             when:
               type: object
-              additionalProperties: true
-              description: "Match clauses (e.g., `to:`, `priority:`, `type:`)."
+              additionalProperties: false
+              description: >
+                Match clauses ANDed together. A rule fires only when every
+                specified field matches the incoming message.
+              properties:
+                to:
+                  type: string
+                  description: "Match on recipient (e.g., 'human', '<agent-name>')."
+                priority:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                  description: "Match on priority — single value or list."
+                type:
+                  type: string
+                  description: >
+                    Match on message type (e.g., 'outcome-proposal').
+                    Added by outcome-proposal-routing.
             cc:
               type: array
               items:

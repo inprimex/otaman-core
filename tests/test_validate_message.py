@@ -276,6 +276,7 @@ class TestNewMessageTypes:
         "outcome-status-changed",
         "solution-status-changed",
         "solution-recommendation",
+        "outcome-proposal",
     ]
 
     def test_each_type_accepted(self, tmp_path):
