@@ -97,6 +97,8 @@ VALID_TYPES = {
     "outcome-status-changed",
     "solution-status-changed",
     "solution-recommendation",
+    # outcome-proposal-routing
+    "outcome-proposal",
 }
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}

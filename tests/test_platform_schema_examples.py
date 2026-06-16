@@ -173,3 +173,70 @@ def test_some_example_uses_field(field: str) -> None:
         "of the examples so future schema changes have a fixture to validate "
         "against."
     )
+
+
+# ---------------------------------------------------------------------------
+# outcome-proposal-routing — bus.routing_rules[].when.type field
+#
+# Task 2.2 from openspec/changes/outcome-proposal-routing/tasks.md: confirm
+# the schema accepts a `type:` match clause on routing rules, alongside the
+# existing `to:` and `priority:` clauses.
+
+
+def _base_config(when: dict) -> dict:
+    """Minimal valid platform.yaml with a single routing rule using `when:`."""
+    return {
+        "project": "example",
+        "version": "1.0",
+        "repos": [{"name": "repo-a", "path": "../repo-a", "owner": "agent-a"}],
+        "bus": {
+            "routing_rules": [
+                {"when": when, "cc": ["spec-agent"]},
+            ],
+        },
+    }
+
+
+class TestRoutingRulesWhenTypeField:
+    def test_type_only_clause_validates(self):
+        schema = _load_schema()
+        config = _base_config({"type": "outcome-proposal"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_type_plus_to_clause_validates(self):
+        schema = _load_schema()
+        config = _base_config({"type": "outcome-proposal", "to": "human"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_to_plus_priority_clause_still_validates(self):
+        """Existing rule shape (no type:) must remain valid — no regression."""
+        schema = _load_schema()
+        config = _base_config({"to": "human", "priority": "high"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_to_plus_priority_list_still_validates(self):
+        """Priority as a list is the shape bus-cc-routing already ships."""
+        schema = _load_schema()
+        config = _base_config({"to": "human", "priority": ["high", "urgent"]})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_all_three_fields_validate(self):
+        schema = _load_schema()
+        config = _base_config({
+            "type": "outcome-proposal",
+            "to": "human",
+            "priority": "high",
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_unknown_when_field_rejected(self):
+        """`when:` is now strict (`additionalProperties: false`)."""
+        schema = _load_schema()
+        config = _base_config({"type": "outcome-proposal", "from": "agent-a"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for unknown when: field"
