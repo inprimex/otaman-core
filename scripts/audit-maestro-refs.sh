@@ -61,7 +61,7 @@ while IFS= read -r match; do
     echo "FAIL [$file]: unannotated maestro reference: $source_line"
     FAILURES=$((FAILURES + 1))
 
-done < <(grep -rnwE -i '\bmaestro\b' "$SRC_DIR" 2>/dev/null || true)
+done < <(grep -rnwE -i -I --exclude-dir=__pycache__ '\bmaestro\b' "$SRC_DIR" 2>/dev/null || true)
 
 if [[ $FAILURES -gt 0 ]]; then
     echo ""
