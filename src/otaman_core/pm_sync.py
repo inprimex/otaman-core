@@ -292,17 +292,24 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
     if not isinstance(block, dict):
         return None
 
+    def _get(key_hyphen: str, key_under: str, default: object = None) -> object:
+        """Read hyphenated YAML key, fall back to underscored form."""
+        v = block.get(key_hyphen)
+        if v is None:
+            v = block.get(key_under)
+        return v if v is not None else default
+
     try:
         return PmSyncConfig(
-            provider=str(block.get("provider") or ""),
-            base_url=str(block.get("base_url") or ""),
-            identity_mode=str(block.get("identity_mode") or ""),
-            program_name=str(block.get("program_name") or ""),
-            program_key=str(block.get("program_key") or ""),
-            per_repo=bool(block.get("per_repo", False)),
-            exclude_repos=list(block.get("exclude_repos") or []),
-            webhook_target=str(block.get("webhook_target") or ""),
-            project_map=dict(block.get("project_map") or {}),
+            provider=str(_get("provider", "provider") or ""),
+            base_url=str(_get("base-url", "base_url") or ""),
+            identity_mode=str(_get("identity-mode", "identity_mode") or ""),
+            program_name=str(_get("program-name", "program_name") or ""),
+            program_key=str(_get("program-key", "program_key") or ""),
+            per_repo=bool(_get("per-repo", "per_repo", False)),
+            exclude_repos=list(_get("exclude-repos", "exclude_repos") or []),
+            webhook_target=str(_get("webhook-target", "webhook_target") or ""),
+            project_map=dict(_get("project-map", "project_map") or {}),
         )
     except (TypeError, ValueError):
         return None
