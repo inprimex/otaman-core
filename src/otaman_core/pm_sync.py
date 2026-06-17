@@ -78,6 +78,8 @@ class PmSyncConfig:
     exclude_repos: list[str]
     webhook_target: str
     project_map: dict[str, int]
+    status_map: dict[str, str]   # Otaman state → PM status name, e.g. {"declared": "New", "done": "Closed"}
+    tracker: str                 # default issue tracker/type name, e.g. "Task"
 
 
 @dataclass(frozen=True)
@@ -310,6 +312,8 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
             exclude_repos=list(_get("exclude-repos", "exclude_repos") or []),
             webhook_target=str(_get("webhook-target", "webhook_target") or ""),
             project_map=dict(_get("project-map", "project_map") or {}),
+            status_map=dict(_get("status-map", "status_map") or {}),
+            tracker=str(_get("tracker", "tracker") or "Task"),
         )
     except (TypeError, ValueError):
         return None
