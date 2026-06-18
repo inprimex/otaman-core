@@ -80,6 +80,13 @@ class PmSyncConfig:
     project_map: dict[str, int]
     status_map: dict[str, str]   # Otaman state → PM status name, e.g. {"declared": "New", "done": "Closed"}
     tracker: str                 # default issue tracker/type name, e.g. "Task"
+    custom_fields: dict[str, int] | None = None
+    """Optional override of Easy8/Redmine custom-field name → id mapping.
+
+    When present, the adapter uses this map directly instead of auto-
+    discovering field ids from ``/custom_fields.json``. Loaded from
+    ``pm-sync.custom-fields`` in platform.yaml. None = let the adapter
+    auto-discover at init time."""
 
 
 @dataclass(frozen=True)
@@ -159,13 +166,20 @@ class WebhookRegistration:
 
 @dataclass(frozen=True)
 class SpecChange:
-    """An OpenSpec change that needs to be reflected in the PM tool."""
+    """An OpenSpec change that needs to be reflected in the PM tool.
+
+    ``description`` is the body of the PM issue (usually the change's
+    ``proposal.md``). Empty when the bridge couldn't read the proposal
+    or none exists; the adapter omits the description field in that
+    case rather than sending an empty string.
+    """
 
     change_name: str
     title: str
     agent_name: str
     spec_path: str
     jtbd_id: str | None
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -319,6 +333,17 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
             v = block.get(key_under)
         return v if v is not None else default
 
+    custom_fields_raw = _get("custom-fields", "custom_fields")
+    custom_fields: dict[str, int] | None
+    if isinstance(custom_fields_raw, dict) and custom_fields_raw:
+        try:
+            custom_fields = {str(k): int(v) for k, v in custom_fields_raw.items()}
+        except (TypeError, ValueError):
+            # Bad shape (e.g., non-integer ids) — fall back to auto-discovery.
+            custom_fields = None
+    else:
+        custom_fields = None
+
     try:
         return PmSyncConfig(
             provider=str(_get("provider", "provider") or ""),
@@ -332,6 +357,7 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
             project_map=dict(_get("project-map", "project_map") or {}),
             status_map=dict(_get("status-map", "status_map") or {}),
             tracker=str(_get("tracker", "tracker") or "Task"),
+            custom_fields=custom_fields,
         )
     except (TypeError, ValueError):
         return None
