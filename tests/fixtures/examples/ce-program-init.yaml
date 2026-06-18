@@ -81,3 +81,16 @@ runner:
 orgs:
   example-ce:
     display_name: "Example CE"
+
+human-roster:
+  - name: Roman Starikov
+    email: starikov@inprimex.com
+    roles:
+      - cofounder
+      - cto
+      - cpo
+    pm-user-id: 1
+  - name: Alice Doe
+    email: alice@example.com
+    roles:
+      - developer
