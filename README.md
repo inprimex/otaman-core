@@ -13,9 +13,7 @@ Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.
 | `resolve_agent_identity` | shipped |
 | `SecretSource` Protocol (env / dotenv / keyring) | shipped |
 | Bearer token validator | shipped |
-| OIDC JWKS validator | stubbed |
 | Adapter Protocol + `AdapterCapabilities` types | shipped |
-| NATS client wrappers | — |
 | CloudEvents helpers | shipped |
 | AsyncAPI / OpenAPI / JSON schemas | shipped |
 | Worktree primitives | shipped |
@@ -32,12 +30,12 @@ Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.
 - **Storage protocols** — `BusStore`, `AuditStore`, `TranscriptStore`, `SessionStore`.
 - **Ownership resolution** — `resolve_agent_identity`: maps a working directory to its declared agent identity.
 - **Secret-source chain** — `SecretSource` Protocol with env, dotenv, keyring backends.
-- **Auth validators** — bearer token and OIDC JWKS validators shared by bridge and runner.
+- **Auth validators** — bearer token validator shared by bridge and runner.
 - **Adapter contract** — `AdapterProtocol` + `AdapterCapabilities` types that all transport adapters implement.
 - **Git host integration** — `GitHostAdapter` Protocol + adapters for GitHub, GitLab, Bitbucket, Azure DevOps, Gitea/Forgejo.
 - **PM tool sync** — `PmSyncAdapter` Protocol + value types consumed by `otaman-adapters` for Easy8/Redmine/etc.
 - **Human roster** — `HumanRosterEntry` dataclass + loader for the `human-roster:` block in `platform.yaml`.
-- **NATS/CloudEvents** — client wrappers and CloudEvents envelope builders.
+- **CloudEvents helpers** — envelope builders used by bridge and runner.
 - **Schemas** — canonical AsyncAPI, OpenAPI, and JSON schemas (including `platform-schema.yaml`) consumed by bridge and CLI.
 - **Worktree primitives** — shared types for worktree-based agent isolation.
 - **SpecBackend Protocol** — `OpenSpecBackend`, `ADRBackend`, `NoneBackend`; pluggable spec storage.
