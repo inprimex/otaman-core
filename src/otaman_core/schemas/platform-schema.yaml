@@ -813,3 +813,45 @@ properties:
         type: array
         items:
           type: string
+
+  # ---------------------------------------------------------------------------
+  # human-roster
+  #
+  # Top-level `human-roster:` — list of people the bridge can resolve PM
+  # assignees against (see otaman_core.human_roster.HumanRosterEntry).
+  # Loader also enforces a semantic rule (non-empty `roles`) — JSON Schema
+  # mirrors this via `minItems: 1` so the failure surfaces both via
+  # `otaman validate` and `load_human_roster`.
+  human-roster:
+    type: array
+    description: >
+      Roster of humans involved in the program; consumed by the bridge for
+      role-to-assignee resolution and by `otaman pm init --roster` for
+      PM-user-id auto-resolution.
+    items:
+      type: object
+      required: [name, email, roles]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: "Person's display name."
+        email:
+          type: string
+          minLength: 1
+          description: "Person's email — canonical key for PM-user-id resolution."
+        roles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+          description: >
+            Non-empty list of role tags this person fills (e.g., cofounder,
+            cto, cpo, developer). Used by the bridge's priority resolution.
+        pm-user-id:
+          type: integer
+          description: >
+            Optional PM-tool user id. Absent until resolved by
+            `otaman pm init --roster`.
