@@ -315,3 +315,106 @@ class TestLoadPmSyncConfig:
         assert result.exclude_repos == []
         assert result.webhook_target == ""
         assert result.project_map == {}
+        assert result.custom_fields is None
+
+
+# ---------------------------------------------------------------------------
+# pm-sync-rich-issues — tasks 2.1 + 2.2
+
+
+class TestSpecChangeDescription:
+    """Task 2.1 — SpecChange.description carries the proposal body."""
+
+    def test_default_empty_string(self):
+        sc = pm.SpecChange(
+            change_name="example",
+            title="Example",
+            agent_name="core-agent",
+            spec_path="openspec/changes/example",
+            jtbd_id=None,
+        )
+        assert sc.description == ""
+
+    def test_description_round_trips(self):
+        body = "## Why\n\nBecause reasons.\n"
+        sc = pm.SpecChange(
+            change_name="example",
+            title="Example",
+            agent_name="core-agent",
+            spec_path="openspec/changes/example",
+            jtbd_id="JTBD-99",
+            description=body,
+        )
+        assert sc.description == body
+
+
+class TestPmSyncConfigCustomFields:
+    """Task 2.2 — custom_fields override from pm-sync.custom-fields."""
+
+    def _yaml_with(self, custom_fields_block: str) -> str:
+        return textwrap.dedent(f"""
+            pm-sync:
+              provider: redmine
+              base_url: https://pm.example.com
+              identity_mode: system_user
+              program_name: P
+              program_key: P
+{custom_fields_block}
+        """)
+
+    def test_absent_block_yields_none(self, tmp_path):
+        p = tmp_path / "platform.yaml"
+        p.write_text(self._yaml_with(""), encoding="utf-8")
+        result = pm.load_pm_sync_config(p)
+        assert result is not None
+        assert result.custom_fields is None
+
+    def test_hyphenated_key(self, tmp_path):
+        block = "              custom-fields:\n                jtbd-id: 4\n                otaman-agent: 5\n                spec-path: 6\n"
+        p = tmp_path / "platform.yaml"
+        p.write_text(self._yaml_with(block), encoding="utf-8")
+        result = pm.load_pm_sync_config(p)
+        assert result is not None
+        assert result.custom_fields == {"jtbd-id": 4, "otaman-agent": 5, "spec-path": 6}
+
+    def test_underscored_alias(self, tmp_path):
+        block = "              custom_fields:\n                jtbd-id: 4\n"
+        p = tmp_path / "platform.yaml"
+        p.write_text(self._yaml_with(block), encoding="utf-8")
+        result = pm.load_pm_sync_config(p)
+        assert result is not None
+        assert result.custom_fields == {"jtbd-id": 4}
+
+    def test_empty_map_yields_none(self, tmp_path):
+        """Empty map = no override; let the adapter auto-discover."""
+        block = "              custom-fields: {}\n"
+        p = tmp_path / "platform.yaml"
+        p.write_text(self._yaml_with(block), encoding="utf-8")
+        result = pm.load_pm_sync_config(p)
+        assert result is not None
+        assert result.custom_fields is None
+
+    def test_non_integer_id_falls_back_to_none(self, tmp_path):
+        """Bad shape shouldn't break the whole config; auto-discovery picks up."""
+        block = "              custom-fields:\n                jtbd-id: not-an-int\n"
+        p = tmp_path / "platform.yaml"
+        p.write_text(self._yaml_with(block), encoding="utf-8")
+        result = pm.load_pm_sync_config(p)
+        assert result is not None
+        assert result.custom_fields is None
+
+    def test_dataclass_default(self):
+        cfg = pm.PmSyncConfig(
+            provider="redmine",
+            base_url="https://pm.example.com",
+            identity_mode="system_user",
+            program_name="P",
+            program_key="P",
+            per_repo=False,
+            exclude_repos=[],
+            webhook_target="",
+            project_map={},
+            status_map={},
+            tracker="Task",
+        )
+        assert cfg.custom_fields is None
