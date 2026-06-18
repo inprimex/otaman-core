@@ -2,45 +2,53 @@
 
 Shared kernel for the Otaman platform — protocols, storage adapters, secrets chain, schemas, and OTel helpers. Nothing lives here unless two or more repos depend on it.
 
+Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.ai](https://docs.otaman.ai)**.
+
 ## Status
 
-| Component | Shipped | Roadmap |
-|---|---|---|
-| `BusStore` / `AuditStore` (SQLite) | shipped | Postgres (Step 3) |
-| `TranscriptStore` / `SessionStore` (SQLite) | shipped | Postgres (Step 3) |
-| `resolve_agent_identity` | shipped | — |
-| `SecretSource` Protocol (env / dotenv / keyring) | shipped | Vault / KMS (Step 4) |
-| Bearer token validator | shipped | — |
-| OIDC JWKS validator | stubbed | Zitadel wiring (Step 4) |
-| Adapter Protocol + `AdapterCapabilities` types | shipped | — |
-| NATS client wrappers | — | ADR-006 wiring (Step 4) |
-| CloudEvents helpers | shipped | — |
-| AsyncAPI / OpenAPI / JSON schemas | shipped | — |
-| Worktree primitives | shipped | — |
-| `SpecBackend` Protocol (`OpenSpecBackend` / `ADRBackend` / `NoneBackend`) | shipped | — |
-| Hook contracts | shipped | — |
-| Path resolution helpers | shipped | — |
-| OTel setup (traces + metrics) | shipped | — |
+| Component | State |
+|---|---|
+| `BusStore` / `AuditStore` (SQLite) | shipped |
+| `TranscriptStore` / `SessionStore` (SQLite) | shipped |
+| `resolve_agent_identity` | shipped |
+| `SecretSource` Protocol (env / dotenv / keyring) | shipped |
+| Bearer token validator | shipped |
+| OIDC JWKS validator | stubbed |
+| Adapter Protocol + `AdapterCapabilities` types | shipped |
+| NATS client wrappers | — |
+| CloudEvents helpers | shipped |
+| AsyncAPI / OpenAPI / JSON schemas | shipped |
+| Worktree primitives | shipped |
+| `SpecBackend` Protocol (`OpenSpecBackend` / `ADRBackend` / `NoneBackend`) | shipped |
+| Hook contracts | shipped |
+| Path resolution helpers | shipped |
+| OTel setup (traces + metrics) | shipped |
+| `GitHostAdapter` Protocol + GitHub/GitLab/Bitbucket/Azure/Gitea adapters | shipped |
+| `PmSyncAdapter` Protocol + value types | shipped |
+| `HumanRosterEntry` + loader | shipped |
 
 ## What this repo owns
 
-- **Storage protocols** — `BusStore`, `AuditStore`, `TranscriptStore`, `SessionStore`; SQLite today, Postgres adapter in Step 3.
+- **Storage protocols** — `BusStore`, `AuditStore`, `TranscriptStore`, `SessionStore`.
 - **Ownership resolution** — `resolve_agent_identity`: maps a working directory to its declared agent identity.
-- **Secret-source chain** — `SecretSource` Protocol with env, dotenv, keyring, and (roadmap) Vault/KMS backends.
+- **Secret-source chain** — `SecretSource` Protocol with env, dotenv, keyring backends.
 - **Auth validators** — bearer token and OIDC JWKS validators shared by bridge and runner.
 - **Adapter contract** — `AdapterProtocol` + `AdapterCapabilities` types that all transport adapters implement.
-- **NATS/CloudEvents** — client wrappers and CloudEvents envelope builders (NATS transport arrives Step 4).
-- **Schemas** — canonical AsyncAPI, OpenAPI, and JSON schemas consumed by bridge and CLI.
+- **Git host integration** — `GitHostAdapter` Protocol + adapters for GitHub, GitLab, Bitbucket, Azure DevOps, Gitea/Forgejo.
+- **PM tool sync** — `PmSyncAdapter` Protocol + value types consumed by `otaman-adapters` for Easy8/Redmine/etc.
+- **Human roster** — `HumanRosterEntry` dataclass + loader for the `human-roster:` block in `platform.yaml`.
+- **NATS/CloudEvents** — client wrappers and CloudEvents envelope builders.
+- **Schemas** — canonical AsyncAPI, OpenAPI, and JSON schemas (including `platform-schema.yaml`) consumed by bridge and CLI.
 - **Worktree primitives** — shared types for worktree-based agent isolation.
 - **SpecBackend Protocol** — `OpenSpecBackend`, `ADRBackend`, `NoneBackend`; pluggable spec storage.
 - **Hook contracts** — pre/post hook interfaces enforced across the harness and plugin.
+- **Bus message validator** — frontmatter schema validation for `.agents/bus/` messages.
 - **OTel setup** — one-call tracer/meter initialisation used by every service.
 
 ## What does NOT go here
 
 Code that is only used by one repo, HTTP servers, deployment config, or harness-specific logic.
 The two-consumer rule is the gatekeeping criterion: if fewer than two repos import it, it stays in the owning repo.
-See [polyrepo-structure.md](https://github.com/inprimex/otaman-meta/blob/main/polyrepo-structure.md).
 
 ## Dependencies
 
@@ -62,13 +70,21 @@ uv run --package otaman-core pytest
 uv run --package otaman-core mypy src/otaman_core
 ```
 
+## Repository layout
+
+| Directory | Contents |
+|---|---|
+| `src/otaman_core/` | Python modules — protocols, adapters, schemas, validators, OTel helpers |
+| `src/otaman_core/schemas/` | Canonical JSON/AsyncAPI/OpenAPI schema files consumed by the validators |
+| `scripts/` | Operational scripts (audit, vault build, etc.) — not packaged at install time |
+| `tests/` | pytest suite, including schema-drift guard fixtures under `tests/fixtures/examples/` |
+| `archive/` | Internal-only material kept in-tree for project history (not user-facing) |
+
 ## See also
 
-- [polyrepo-structure.md](https://github.com/inprimex/otaman-meta/blob/main/polyrepo-structure.md) — ownership map across all repos
-- [phased-roadmap.md](https://github.com/inprimex/otaman-meta/blob/main/phased-roadmap.md) — Step 1–7 sequencing
-- [ADR-006 (NATS system bus)](https://github.com/inprimex/otaman-meta/blob/main/adrs/ADR-006-nats-system-bus.md) — future event substrate
-- [ADR-010 (user binding + seat licensing)](https://github.com/inprimex/otaman-meta/blob/main/adrs/ADR-010-user-binding-and-seat-licensing.md) — auth model
-- [otaman.dev](https://otaman.dev) — platform docs
+- **[docs.otaman.ai](https://docs.otaman.ai)** — full documentation, walkthroughs, architecture notes, and integration guides
+- `CONTRIBUTING.md` — contributor workflow
+- `SECURITY.md` — security policy and reporting channel
 
 ## License
 
