@@ -4,27 +4,6 @@ Shared kernel for the Otaman platform — protocols, storage adapters, secrets c
 
 Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.ai](https://docs.otaman.ai)**.
 
-## Status
-
-| Component | State |
-|---|---|
-| `BusStore` / `AuditStore` (SQLite) | shipped |
-| `TranscriptStore` / `SessionStore` (SQLite) | shipped |
-| `resolve_agent_identity` | shipped |
-| `SecretSource` Protocol (env / dotenv / keyring) | shipped |
-| Bearer token validator | shipped |
-| Adapter Protocol + `AdapterCapabilities` types | shipped |
-| CloudEvents helpers | shipped |
-| AsyncAPI / OpenAPI / JSON schemas | shipped |
-| Worktree primitives | shipped |
-| `SpecBackend` Protocol (`OpenSpecBackend` / `ADRBackend` / `NoneBackend`) | shipped |
-| Hook contracts | shipped |
-| Path resolution helpers | shipped |
-| OTel setup (traces + metrics) | shipped |
-| `GitHostAdapter` Protocol + GitHub/GitLab/Bitbucket/Azure/Gitea adapters | shipped |
-| `PmSyncAdapter` Protocol + value types | shipped |
-| `HumanRosterEntry` + loader | shipped |
-
 ## What this repo owns
 
 - **Storage protocols** — `BusStore`, `AuditStore`, `TranscriptStore`, `SessionStore`.
