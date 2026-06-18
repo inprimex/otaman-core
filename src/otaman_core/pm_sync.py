@@ -215,6 +215,24 @@ class PmSyncAdapter(Protocol):
 
     def list_priorities(self) -> list[PmPriority]: ...
 
+    def get_users(self) -> list[dict]:
+        """Return raw user records from the PM tool.
+
+        Used by ``resolve_pm_user_id`` in otaman-adapters to look up
+        :class:`~otaman_core.human_roster.HumanRosterEntry` rows by email
+        (exact) then by name (case-insensitive). Field keys vary per
+        provider; callers normalise.
+
+        Example return shapes::
+
+            # Easy8 / Redmine
+            [{"id": 1, "name": "Roman", "mail": "r@x.com"}, ...]
+
+            # Linear / Jira / etc — different keys; resolution logic
+            # handles per-provider mapping.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Error type

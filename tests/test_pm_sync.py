@@ -157,7 +157,35 @@ class TestPmSyncAdapterRuntimeCheckable:
             def list_priorities(self):
                 raise NotImplementedError
 
+            def get_users(self):
+                raise NotImplementedError
+
         assert isinstance(ConcreteAdapter(), pm.PmSyncAdapter)
+
+    def test_protocol_declares_get_users(self):
+        """human-roster task 4.1 — get_users() is part of the Protocol surface."""
+        assert hasattr(pm.PmSyncAdapter, "get_users")
+
+    def test_class_missing_get_users_is_not_adapter(self):
+        """Removing get_users from a concrete adapter breaks isinstance check."""
+
+        class PartialAdapter:
+            @property
+            def capabilities(self):
+                return None
+
+            def provision_project(self, config): ...
+            def create_issue(self, spec_change): ...
+            def update_issue(self, issue_id, state): ...
+            def add_comment(self, issue_id, body): ...
+            def list_issues(self, filters): ...
+            def register_webhook(self, url, events): ...
+            def handle_inbound_event(self, payload): ...
+            def list_statuses(self): ...
+            def list_priorities(self): ...
+            # no get_users — should fail isinstance
+
+        assert not isinstance(PartialAdapter(), pm.PmSyncAdapter)
 
 
 # ---------------------------------------------------------------------------
