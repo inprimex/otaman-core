@@ -34,7 +34,16 @@ properties:
         owner:
           type: string
           pattern: "^[a-z][a-z0-9-]{1,63}$"
-          description: "Agent name that owns this repo"
+          description: "Agent name that owns this repo (catch-all when owner-paths is set)"
+        owner-paths:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: "^[a-z][a-z0-9-]{1,63}$"
+          description: >
+            monorepo-path-ownership: map gitignore-style glob → agent name. Paths
+            matching the glob route to the named agent; unmatched paths fall back
+            to the repo's catch-all owner:. See otaman_core.owner_paths.
         remote:
           type: string
           description: "Git remote URL for cloning (e.g., git@github.com:org/repo.git)"

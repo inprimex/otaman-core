@@ -68,6 +68,23 @@ except ImportError:
 #     agent-to-agent traffic — use `response-effort` for AI-to-AI ordering.
 #     Example: 2026-06-04T18:00:00Z
 #
+#   repo: <repo-name>
+#     Repo context for path-based dispatch. Required when `path:` is present;
+#     otherwise optional and informational. Must match a `repos[].name` in
+#     platform.yaml at dispatch time (loosely checked here — the dispatcher
+#     enforces the strict check).
+#
+#   path: <relative-path> | [<path>, <path>, ...]
+#     Optional, monorepo-path-ownership feature. When present, the bus
+#     resolves the recipient via `owner-paths` on the named `repo:`,
+#     overriding the `to:` field. Allowed only on these message types:
+#       - task-assignment
+#       - task-complete
+#       - spec-change-request
+#       - contract-change
+#     For other types using `path:` is rejected — they have semantics
+#     that don't fit per-path routing.
+#
 # Body format: Markdown. MUST contain a `## Subject: <text>` heading.
 # ---------------------------------------------------------------------------
 
@@ -103,6 +120,14 @@ VALID_TYPES = {
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 VALID_RESPONSE_EFFORTS = {"XS", "S", "M", "L", "XL"}
+
+# Types that may carry a `path:` field for monorepo-path-ownership routing.
+PATH_ELIGIBLE_TYPES = frozenset({
+    "task-assignment",
+    "task-complete",
+    "spec-change-request",
+    "contract-change",
+})
 
 REQUIRED_FIELDS = {"id", "from", "to", "type", "timestamp"}
 
@@ -204,6 +229,35 @@ def validate_message(
             errors.append(
                 f"Invalid response-deadline: '{response_deadline}' — "
                 "must be RFC 3339 / ISO-8601 with timezone (e.g. 2026-06-04T18:00:00Z)"
+            )
+
+    # path: optional monorepo-path-ownership routing field
+    path_field = fm.get("path")
+    if path_field is not None:
+        if msg_type and msg_type not in PATH_ELIGIBLE_TYPES:
+            errors.append(
+                f"'path:' field is not allowed on type '{msg_type}'; "
+                f"only {sorted(PATH_ELIGIBLE_TYPES)} may use path-based routing"
+            )
+        if isinstance(path_field, str):
+            if not path_field.strip():
+                errors.append("path: must be a non-empty string when scalar")
+        elif isinstance(path_field, list):
+            if len(path_field) == 0:
+                errors.append("path: list must contain at least one entry")
+            elif not all(isinstance(p, str) and p.strip() for p in path_field):
+                errors.append("path: every list entry must be a non-empty string")
+        else:
+            errors.append(
+                f"path: must be a string or a list of strings, "
+                f"got {type(path_field).__name__}"
+            )
+        # path requires repo: context for the dispatcher to resolve owner-paths.
+        repo_field = fm.get("repo")
+        if not isinstance(repo_field, str) or not repo_field.strip():
+            errors.append(
+                "'path:' requires a 'repo:' field naming the platform.yaml "
+                "repo whose owner-paths the path is relative to"
             )
 
     # to: field — agent name validation and broadcast whitelist

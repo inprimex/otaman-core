@@ -39,6 +39,13 @@ repos:
   - name: example-business
     path: ./example-business
     owner: cpo-agent
+  - name: example-mono
+    path: ./example-mono
+    owner: root-agent
+    owner-paths:
+      apps/web/**: web-agent
+      apps/api/**: api-agent
+      packages/shared/**: shared-agent
 
 agent_presence: true
 
