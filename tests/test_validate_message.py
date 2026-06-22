@@ -263,6 +263,67 @@ class TestBackwardsCompatibility:
         assert warnings == []
 
 
+class TestPathField:
+    """monorepo-path-ownership task 1.6 — `path:` + `repo:` validation."""
+
+    def test_absent_ok(self, tmp_path):
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm()))
+        assert errors == []
+
+    def test_string_path_on_eligible_type_ok(self, tmp_path):
+        fm = _valid_fm(
+            type="task-assignment",
+            repo="mono",
+            path="apps/web/page.tsx",
+        )
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert errors == []
+
+    def test_list_path_on_eligible_type_ok(self, tmp_path):
+        fm = _valid_fm(
+            type="contract-change",
+            to="all",
+            repo="mono",
+            path="[apps/web/x, apps/api/y]",
+        )
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert errors == []
+
+    def test_path_on_info_type_rejected(self, tmp_path):
+        fm = _valid_fm(type="info", repo="mono", path="x.py")
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert any("path" in e and "info" in e for e in errors)
+
+    def test_path_without_repo_rejected(self, tmp_path):
+        fm = _valid_fm(type="task-assignment", path="x.py")
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert any("repo" in e for e in errors)
+
+    def test_empty_string_path_rejected(self, tmp_path):
+        fm = _valid_fm(type="task-assignment", repo="mono", path='""')
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert any("path" in e for e in errors)
+
+    def test_empty_list_path_rejected(self, tmp_path):
+        fm = _valid_fm(type="task-assignment", repo="mono", path="[]")
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert any("path" in e and "list" in e for e in errors)
+
+    def test_non_string_in_list_rejected(self, tmp_path):
+        fm = _valid_fm(type="task-assignment", repo="mono", path="[apps/x, 42]")
+        errors, _ = validate_message(_write_msg(tmp_path, fm))
+        assert any("path" in e for e in errors)
+
+    def test_path_allowed_types(self, tmp_path):
+        for t in ("task-assignment", "task-complete", "spec-change-request", "contract-change"):
+            if t == "contract-change":
+                fm = _valid_fm(type=t, to="all", repo="mono", path="x.py")
+            else:
+                fm = _valid_fm(type=t, repo="mono", path="x.py")
+            errors, _ = validate_message(_write_msg(tmp_path, fm))
+            assert errors == [], f"{t}: {errors}"
+
+
 class TestNewMessageTypes:
     """Allowlist sync for types added by shipped spec changes (2026-06-07)."""
 
