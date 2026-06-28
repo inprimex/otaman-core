@@ -1,6 +1,6 @@
 [project]
 name = "otaman-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Otaman platform kernel: storage protocols, ownership resolution, secrets chain, schemas, hooks, OTel helpers, spec backend protocol"
 requires-python = ">=3.10"
 authors = [{ name = "Otaman platform" }]
