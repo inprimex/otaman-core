@@ -368,6 +368,48 @@ properties:
           notes:
             type: string
             description: "Free-form description of the team's git workflow — used to elaborate on 'custom' branching, document review rules, etc. Injected into generated CLAUDE.md."
+          environments:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [branch, environment, deploy_trigger]
+              properties:
+                branch:
+                  type: string
+                  description: "Literal branch name (no wildcard/pattern matching in v1)."
+                environment:
+                  type: string
+                  description: "Environment this branch deploys to, e.g. 'staging', 'production'."
+                deploy_trigger:
+                  type: string
+                  enum: [on_push, on_merge, on_tag]
+                  description: "Event that triggers a deploy for this branch."
+            description: >
+              Ordered list mapping branches to environments and deploy triggers.
+              Optional and additive — absence validates exactly as before.
+              Order matters: consumers (e.g. PR target-branch defaults) treat
+              the first entry as the lowest environment in the pipeline.
+          merge_policy:
+            type: object
+            additionalProperties: false
+            properties:
+              required_checks:
+                type: array
+                items:
+                  type: string
+                description: "CI check names that must pass before merge."
+              required_reviews:
+                type: integer
+                description: "Minimum number of required approving reviews."
+              merge_method:
+                type: string
+                enum: [merge, squash, rebase]
+                description: "Default merge method for this project."
+            description: >
+              Detail once a PR is required — independent of 'pr_required',
+              which remains the simple on/off gate. Optional even when
+              pr_required is true; all sub-fields are individually optional.
       api:
         type: object
         additionalProperties: false
