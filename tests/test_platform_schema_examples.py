@@ -240,3 +240,91 @@ class TestRoutingRulesWhenTypeField:
         config = _base_config({"type": "outcome-proposal", "from": "agent-a"})
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for unknown when: field"
+
+
+# ---------------------------------------------------------------------------
+# git-flow-branch-config — standards.git.environments / merge_policy
+#
+# Tasks 1.1-1.3 from openspec/changes/git-flow-branch-config/tasks.md: schema
+# additions for branch-to-environment mapping and merge policy, plus fixture
+# coverage (valid + invalid) for both.
+
+
+def _git_config(git: dict) -> dict:
+    """Minimal valid platform.yaml with a `standards.git` block."""
+    return {
+        "project": "example",
+        "version": "1.0",
+        "repos": [{"name": "repo-a", "path": "../repo-a", "owner": "agent-a"}],
+        "standards": {"git": git},
+    }
+
+
+class TestGitFlowBranchConfig:
+    def test_environments_valid_dev_main_split_validates(self):
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [
+                {"branch": "develop", "environment": "staging", "deploy_trigger": "on_push"},
+                {"branch": "main", "environment": "production", "deploy_trigger": "on_merge"},
+            ],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_environments_absent_still_validates(self):
+        """Backward compatible: existing standards.git configs need no changes."""
+        schema = _load_schema()
+        config = _git_config({"branching": "trunk-based"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_environments_missing_required_field_rejected(self):
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [{"branch": "main", "environment": "production"}],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for missing deploy_trigger"
+
+    def test_environments_invalid_deploy_trigger_rejected(self):
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [
+                {"branch": "main", "environment": "production", "deploy_trigger": "on_commit"},
+            ],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for unknown deploy_trigger enum value"
+
+    def test_merge_policy_valid_full_declaration_validates(self):
+        schema = _load_schema()
+        config = _git_config({
+            "merge_policy": {
+                "required_checks": ["pytest", "lint"],
+                "required_reviews": 1,
+                "merge_method": "squash",
+            },
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_merge_policy_empty_object_validates(self):
+        """All sub-fields of merge_policy are individually optional."""
+        schema = _load_schema()
+        config = _git_config({"pr_required": True, "merge_policy": {}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_merge_policy_invalid_merge_method_rejected(self):
+        schema = _load_schema()
+        config = _git_config({"merge_policy": {"merge_method": "fast-forward"}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for unknown merge_method enum value"
+
+    def test_merge_policy_unknown_field_rejected(self):
+        """merge_policy is strict (`additionalProperties: false`)."""
+        schema = _load_schema()
+        config = _git_config({"merge_policy": {"auto_merge": True}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for unknown merge_policy field"
