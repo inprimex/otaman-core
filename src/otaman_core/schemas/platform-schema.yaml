@@ -373,23 +373,31 @@ properties:
             items:
               type: object
               additionalProperties: false
-              required: [branch, environment, deploy_trigger]
+              required: [environment, deploy_trigger]
+              anyOf:
+                - required: [branch]
+                - required: [tag_pattern]
               properties:
                 branch:
                   type: string
-                  description: "Literal branch name (no wildcard/pattern matching in v1)."
+                  description: "Literal branch name (no wildcard/pattern matching in v1). Alternative match key to tag_pattern — at least one of the two is required."
+                tag_pattern:
+                  type: string
+                  description: "Glob-style tag pattern, e.g. 'v*'. Alternative match key to branch, for tag-triggered release pipelines with no persistent branch identity (e.g. otaman-deploy's release.yml)."
                 environment:
                   type: string
-                  description: "Environment this branch deploys to, e.g. 'staging', 'production'."
+                  description: "Environment this entry deploys to, e.g. 'staging', 'production'."
                 deploy_trigger:
                   type: string
-                  enum: [on_push, on_merge, on_tag]
-                  description: "Event that triggers a deploy for this branch."
+                  enum: [on_push, on_merge, on_tag, manual]
+                  description: "Event that triggers a deploy for this entry. 'manual' represents workflow_dispatch-style triggers with no push/merge/tag event."
             description: >
-              Ordered list mapping branches to environments and deploy triggers.
-              Optional and additive — absence validates exactly as before.
-              Order matters: consumers (e.g. PR target-branch defaults) treat
-              the first entry as the lowest environment in the pipeline.
+              Ordered list mapping a branch or tag pattern to an environment and
+              deploy trigger. Optional and additive — absence validates exactly
+              as before. Each entry requires either 'branch' or 'tag_pattern'
+              (or both). Order matters: consumers (e.g. PR target-branch
+              defaults) treat the first branch-keyed entry as the lowest
+              environment in the pipeline, skipping tag_pattern-keyed entries.
           merge_policy:
             type: object
             additionalProperties: false
