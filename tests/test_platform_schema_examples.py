@@ -245,9 +245,11 @@ class TestRoutingRulesWhenTypeField:
 # ---------------------------------------------------------------------------
 # git-flow-branch-config — standards.git.environments / merge_policy
 #
-# Tasks 1.1-1.3 from openspec/changes/git-flow-branch-config/tasks.md: schema
-# additions for branch-to-environment mapping and merge policy, plus fixture
-# coverage (valid + invalid) for both.
+# Tasks 1.1-1.4 from openspec/changes/git-flow-branch-config/tasks.md: schema
+# additions for branch-or-tag-to-environment mapping and merge policy, plus
+# fixture coverage (valid + invalid) for both. Task 1.4 amends environments[]
+# to accept a tag_pattern match key alongside branch (otaman-deploy's real
+# release.yml is tag-triggered, not branch-triggered).
 
 
 def _git_config(git: dict) -> dict:
@@ -296,6 +298,37 @@ class TestGitFlowBranchConfig:
         })
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for unknown deploy_trigger enum value"
+
+    def test_environments_tag_pattern_keyed_entry_validates(self):
+        """otaman-deploy's actual shape: no branch, tag-triggered release."""
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [
+                {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "on_tag"},
+            ],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_environments_manual_deploy_trigger_validates(self):
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [
+                {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "manual"},
+            ],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_environments_neither_branch_nor_tag_pattern_rejected(self):
+        schema = _load_schema()
+        config = _git_config({
+            "environments": [
+                {"environment": "production", "deploy_trigger": "on_tag"},
+            ],
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error when neither branch nor tag_pattern is present"
 
     def test_merge_policy_valid_full_declaration_validates(self):
         schema = _load_schema()
