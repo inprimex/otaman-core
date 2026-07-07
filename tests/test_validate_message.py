@@ -1,9 +1,11 @@
 """Tests for otaman_core.validate_message and .otaman marker agent field."""
 
 from __future__ import annotations
+import os
+import sys
 from pathlib import Path
 import pytest
-from otaman_core.validate_message import validate_message
+from otaman_core.validate_message import PRIVILEGED_TYPES, validate_message, validate_message_content
 
 
 def _write_msg(tmp_path, frontmatter, body="## Subject: test\n"):
@@ -118,7 +120,10 @@ class TestBroadcastWhitelist:
         assert errors == []
 
     def test_emergency_halt_all_ok(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="emergency-halt")))
+        """emergency-halt is privileged (F012) — from: human required to isolate the broadcast check."""
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="emergency-halt", **{"from": "human"}))
+        )
         assert errors == []
 
     def test_agent_registry_change_all_ok(self, tmp_path):
@@ -342,7 +347,9 @@ class TestNewMessageTypes:
 
     def test_each_type_accepted(self, tmp_path):
         for t in self.NEW_TYPES:
-            errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(type=t)))
+            # human-decision is privileged (F012) — needs from: human, unlike the rest.
+            from_field = "human" if t in PRIVILEGED_TYPES else "core-agent"
+            errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(type=t, **{"from": from_field})))
             assert errors == [], f"Expected {t!r} to validate, got errors: {errors}"
 
 
@@ -372,3 +379,96 @@ class TestMarkerAgentField:
         m = tmp_path / ".otaman"
         m.write_text("otaman_root: ../meta\nfuture_field: value\n")
         assert "future_field" not in parse_marker_fields(m)
+
+
+class TestPrivilegedTypes:
+    """F012: privileged types (assert a human decision) require from: human."""
+
+    def test_all_privileged_types_covered(self):
+        assert PRIVILEGED_TYPES == {
+            "human-decision",
+            "spec-change-approved",
+            "spec-change-rejected",
+            "emergency-halt",
+        }
+
+    @pytest.mark.parametrize("ptype", sorted(PRIVILEGED_TYPES))
+    def test_privileged_type_from_agent_rejected(self, tmp_path, ptype):
+        errors = _errors(tmp_path, _valid_fm(type=ptype, **{"from": "core-agent"}))
+        assert any("privileged" in e for e in errors), errors
+
+    @pytest.mark.parametrize("ptype", sorted(PRIVILEGED_TYPES))
+    def test_privileged_type_from_human_accepted(self, tmp_path, ptype):
+        errors = _errors(tmp_path, _valid_fm(type=ptype, **{"from": "human"}))
+        assert not any("privileged" in e for e in errors), errors
+
+    def test_privileged_type_from_spoofed_human_lookalike_rejected(self, tmp_path):
+        """from: 'Human' / 'human-agent' etc. must not satisfy the check."""
+        errors = _errors(tmp_path, _valid_fm(type="spec-change-approved", **{"from": "Human"}))
+        assert any("privileged" in e for e in errors), errors
+
+    def test_non_privileged_type_unaffected(self, tmp_path):
+        errors = _errors(tmp_path, _valid_fm(type="info", **{"from": "core-agent"}))
+        assert errors == []
+
+
+class TestValidateMessageContent:
+    """validate_message_content is the pre-write core validate_message() wraps."""
+
+    def test_matches_file_based_validation(self, tmp_path):
+        fm = _valid_fm(type="spec-change-approved", **{"from": "core-agent"})
+        content = f"---\n{fm}\n---\n\n## Subject: test\n"
+        content_errors, content_warnings = validate_message_content(content)
+        file_errors, file_warnings = validate_message(_write_msg(tmp_path, fm))
+        assert content_errors == file_errors
+        assert content_warnings == file_warnings
+
+    def test_valid_content_no_file_needed(self):
+        fm = _valid_fm()
+        content = f"---\n{fm}\n---\n\n## Subject: test\n"
+        errors, warnings = validate_message_content(content)
+        assert errors == []
+        assert warnings == []
+
+
+class TestStdinMode:
+    """main() --stdin: the hook-facing entry point for pre-write validation."""
+
+    def _run_stdin(self, content: str, cwd: Path) -> tuple[int, str]:
+        import io
+        import contextlib
+        from otaman_core.validate_message import main
+
+        old_argv = sys.argv
+        old_stdin = sys.stdin
+        old_cwd = Path.cwd()
+        sys.argv = ["validate-message.py", "--stdin"]
+        sys.stdin = io.StringIO(content)
+        stderr = io.StringIO()
+        os.chdir(cwd)
+        try:
+            with contextlib.redirect_stderr(stderr):
+                code = main()
+        finally:
+            sys.argv = old_argv
+            sys.stdin = old_stdin
+            os.chdir(old_cwd)
+        return code, stderr.getvalue()
+
+    def test_forged_privileged_message_rejected(self, tmp_path):
+        fm = _valid_fm(type="spec-change-approved", **{"from": "core-agent"})
+        content = f"---\n{fm}\n---\n\n## Subject: test\n"
+        code, stderr = self._run_stdin(content, tmp_path)
+        assert code == 1
+        assert "privileged" in stderr
+
+    def test_legitimate_privileged_message_accepted(self, tmp_path):
+        fm = _valid_fm(type="spec-change-approved", **{"from": "human"})
+        content = f"---\n{fm}\n---\n\n## Subject: test\n"
+        code, _ = self._run_stdin(content, tmp_path)
+        assert code == 0
+
+    def test_ordinary_message_accepted(self, tmp_path):
+        content = f"---\n{_valid_fm()}\n---\n\n## Subject: test\n"
+        code, _ = self._run_stdin(content, tmp_path)
+        assert code == 0
