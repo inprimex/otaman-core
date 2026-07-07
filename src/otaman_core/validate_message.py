@@ -118,6 +118,18 @@ VALID_TYPES = {
     "outcome-proposal",
 }
 
+# Privileged types: these assert that a human made a decision. Forging one
+# defeats the platform's HITL guarantee (security GAP finding F012, 2026-07-04)
+# — the validator therefore requires from: human on all of them.
+PRIVILEGED_TYPES = frozenset({
+    "human-decision",
+    "spec-change-approved",
+    "spec-change-rejected",
+    "emergency-halt",
+})
+
+_HUMAN_SENDER = "human"
+
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 VALID_RESPONSE_EFFORTS = {"XS", "S", "M", "L", "XL"}
 
@@ -150,13 +162,31 @@ def validate_message(
 
     Returns (errors, warnings). Errors block the message; warnings are advisory.
     """
-    errors: list[str] = []
-    warnings: list[str] = []
-
     try:
         content = filepath.read_text(encoding="utf-8")
     except OSError as e:
         return [f"Cannot read file: {e}"], []
+
+    return validate_message_content(content, known_agents)
+
+
+def validate_message_content(
+    content: str, known_agents: set[str] | None = None
+) -> tuple[list[str], list[str]]:
+    """Validate bus message *content* directly, without requiring a file on disk.
+
+    This is the core the file-based :func:`validate_message` wraps. Exposing
+    it separately lets callers validate a message **before** it is written —
+    e.g. a PreToolUse hook can pass the ``tool_input.content`` of a pending
+    Write/Edit targeting ``.agents/bus/**`` here and block the call on error,
+    which file-based validation cannot do (it only ever runs after the file
+    already exists). See ``main()``'s ``--stdin`` mode for the CLI entry
+    point a non-Python hook can shell out to.
+
+    Returns (errors, warnings). Errors block the message; warnings are advisory.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # Parse frontmatter
     fm_match = re.match(r"^---\n(.+?)\n---", content, re.DOTALL)
@@ -180,6 +210,15 @@ def validate_message(
     msg_type = fm.get("type")
     if msg_type and msg_type not in VALID_TYPES:
         errors.append(f"Unknown type: '{msg_type}' (valid: {', '.join(sorted(VALID_TYPES))})")
+
+    # F012: privileged types assert a human decision — only from: human may send them.
+    if msg_type in PRIVILEGED_TYPES:
+        from_field = fm.get("from")
+        if from_field != _HUMAN_SENDER:
+            errors.append(
+                f"type '{msg_type}' is privileged and may only be sent with from: human "
+                f"(got from: {from_field!r}); this guards the platform's HITL guarantee"
+            )
 
     # Priority validation
     priority = fm.get("priority")
@@ -319,6 +358,24 @@ from otaman_core._resolve import find_maestro_root as find_project_root  # share
 
 
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--stdin":
+        # Validate content read from stdin, without a file on disk. Intended
+        # for a PreToolUse hook to shell out to before allowing a Write/Edit
+        # into .agents/bus/** to complete (F012): e.g.
+        #   python3 -m otaman_core.validate_message --stdin <<< "$tool_input_content"
+        content = sys.stdin.read()
+        project_root = find_project_root(Path.cwd())
+        known_agents = load_known_agents(project_root) if project_root else set()
+        errors, warnings = validate_message_content(content, known_agents)
+        for w in warnings:
+            print(f"WARNING: {w}", file=sys.stderr)
+        if errors:
+            for e in errors:
+                print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        print("OK")
+        return 0
+
     if len(sys.argv) < 2:
         print("Usage: validate-message.py <message-file|bus-dir|project-root> [--all]", file=sys.stderr)
         return 2
