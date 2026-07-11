@@ -727,6 +727,12 @@ properties:
           system_prompt_append:
             type: string
             description: "Path to CLAUDE.md or similar (forwarded as `--append-system-prompt`)."
+          plugin_dir:
+            type: string
+            description: >
+              Path to the org's vendored plugin tree (forwarded as
+              `--plugin-dir <path>` alongside `--continue` on interactive
+              spawn). Optional; absent means no `--plugin-dir` injection.
       harnesses:
         type: array
         description: "Harness binary declarations (ce-bootstrap-harness-deps)."
