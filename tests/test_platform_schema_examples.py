@@ -361,3 +361,46 @@ class TestGitFlowBranchConfig:
         config = _git_config({"merge_policy": {"auto_merge": True}})
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for unknown merge_policy field"
+
+
+# ---------------------------------------------------------------------------
+# runner-spawn-session-parity — runner.agent_bootstrap.plugin_dir
+#
+# Task 1.1 from openspec/changes/runner-spawn-session-parity/tasks.md:
+# additive, backward-compatible schema field for the org's vendored
+# plugin-tree path, forwarded by the runner as `--plugin-dir` on spawn.
+
+
+def _runner_config(agent_bootstrap: dict) -> dict:
+    """Minimal valid platform.yaml with a `runner.agent_bootstrap` block."""
+    return {
+        "project": "example",
+        "version": "1.0",
+        "repos": [{"name": "repo-a", "path": "../repo-a", "owner": "agent-a"}],
+        "runner": {"agent_bootstrap": agent_bootstrap},
+    }
+
+
+class TestRunnerAgentBootstrapPluginDir:
+    def test_plugin_dir_absent_validates(self):
+        """Backward compatible: existing configs with no plugin_dir still validate."""
+        schema = _load_schema()
+        config = _runner_config({"mcp_config": ".mcp.json"})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_plugin_dir_valid_string_validates(self):
+        schema = _load_schema()
+        config = _runner_config({
+            "mcp_config": ".mcp.json",
+            "system_prompt_append": "CLAUDE.md",
+            "plugin_dir": "~/.otaman/otaman-plugin-tree",
+        })
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_plugin_dir_wrong_type_rejected(self):
+        schema = _load_schema()
+        config = _runner_config({"plugin_dir": ["not", "a", "string"]})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected validation error for non-string plugin_dir"
