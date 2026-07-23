@@ -80,6 +80,7 @@ runner:
   agent_bootstrap:
     mcp_config: ".mcp.json"
     system_prompt_append: "CLAUDE.md"
+    plugin_dir: ".otaman/plugins"
   harnesses:
     - id: claude-code
       binary: claude
