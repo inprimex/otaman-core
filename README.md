@@ -31,8 +31,8 @@ The two-consumer rule is the gatekeeping criterion: if fewer than two repos impo
 
 - Python 3.11+
 - `uv` (workspace package manager)
-- SQLite (bundled) — Postgres driver optional at import time
-- `opentelemetry-sdk`, `cloudevents`, `pydantic` (pinned in `pyproject.toml`)
+- Runtime: `pyyaml`, `jsonschema` (see `pyproject.toml`)
+- Optional extras: `keyring` (OS keychain secret backend), `oidc` (JWT validation), `wiki` (tree-sitter code parsing)
 
 ## Quick start (development)
 
@@ -55,7 +55,6 @@ uv run --package otaman-core mypy src/otaman_core
 | `src/otaman_core/schemas/` | Canonical JSON/AsyncAPI/OpenAPI schema files consumed by the validators |
 | `scripts/` | Operational scripts (audit, vault build, etc.) — not packaged at install time |
 | `tests/` | pytest suite, including schema-drift guard fixtures under `tests/fixtures/examples/` |
-| `archive/` | Internal-only material kept in-tree for project history (not user-facing) |
 
 ## See also
 
