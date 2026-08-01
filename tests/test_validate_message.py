@@ -1,11 +1,18 @@
 """Tests for otaman_core.validate_message and .otaman marker agent field."""
 
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
+
 import pytest
-from otaman_core.validate_message import PRIVILEGED_TYPES, validate_message, validate_message_content
+
+from otaman_core.validate_message import (
+    PRIVILEGED_TYPES,
+    validate_message,
+    validate_message_content,
+)
 
 
 def _write_msg(tmp_path, frontmatter, body="## Subject: test\n"):
@@ -42,11 +49,11 @@ class TestRequiredFields:
         assert warnings == []
 
     def test_missing_id(self, tmp_path):
-        fm = "\n".join(l for l in _valid_fm().splitlines() if not l.startswith("id:"))
+        fm = "\n".join(line for line in _valid_fm().splitlines() if not line.startswith("id:"))
         assert any("id" in e for e in _errors(tmp_path, fm))
 
     def test_missing_to(self, tmp_path):
-        fm = "\n".join(l for l in _valid_fm().splitlines() if not l.startswith("to:"))
+        fm = "\n".join(line for line in _valid_fm().splitlines() if not line.startswith("to:"))
         assert any("to" in e for e in _errors(tmp_path, fm))
 
     def test_missing_subject_line(self, tmp_path):
@@ -435,8 +442,9 @@ class TestStdinMode:
     """main() --stdin: the hook-facing entry point for pre-write validation."""
 
     def _run_stdin(self, content: str, cwd: Path) -> tuple[int, str]:
-        import io
         import contextlib
+        import io
+
         from otaman_core.validate_message import main
 
         old_argv = sys.argv

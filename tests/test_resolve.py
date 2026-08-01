@@ -1,8 +1,6 @@
 """Tests for scripts/_resolve.py — maestro root resolution."""
 
-import os
 import pathlib
-import textwrap
 import warnings
 from pathlib import Path
 

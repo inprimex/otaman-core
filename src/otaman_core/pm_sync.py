@@ -26,10 +26,9 @@ Typical platform.yaml shape::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
-
+from typing import Any, Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Capabilities
@@ -326,7 +325,7 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
     if not isinstance(block, dict):
         return None
 
-    def _get(key_hyphen: str, key_under: str, default: object = None) -> object:
+    def _get(key_hyphen: str, key_under: str, default: Any = None) -> Any:
         """Read hyphenated YAML key, fall back to underscored form."""
         v = block.get(key_hyphen)
         if v is None:

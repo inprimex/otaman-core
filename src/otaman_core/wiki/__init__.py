@@ -9,8 +9,8 @@ Public surface (spike):
     HAS_TREE_SITTER — True when tree-sitter + tree-sitter-python are installed
 """
 
-from .ingest import ingest
 from ._entity import WikiEntity
 from ._extract import HAS_TREE_SITTER
+from .ingest import ingest
 
 __all__ = ["ingest", "WikiEntity", "HAS_TREE_SITTER"]

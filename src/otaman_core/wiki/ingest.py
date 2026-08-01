@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from ._extract import parse_file
 from ._entity import WikiEntity
+from ._extract import parse_file
 
 
 def ingest(

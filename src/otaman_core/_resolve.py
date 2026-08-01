@@ -466,7 +466,7 @@ def expand_config_dir(config_dir: str, shell: str, *, home: str | None = None) -
 # release window; sunset planned for otaman-core 1.0 alongside the
 # .maestro marker dual-recognition.  # legacy: .maestro dual-recognition removed at 1.0
 
-import os as _os
+import os as _os  # noqa: E402 — deliberate late import, see comment above
 
 
 def active_routing_env() -> str | None:

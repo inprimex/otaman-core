@@ -7,9 +7,7 @@ calls — JWKS fetch is injected via the validator's ``jwks_fetcher``.
 
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import replace
 
 import pytest
 
@@ -21,14 +19,12 @@ crypto_serialization = pytest.importorskip(
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from otaman_core.auth_oidc import (
-    OIDCAuthResult,
+    ZITADEL_ROLES_CLAIM,
     OIDCConfig,
     OIDCError,
     OIDCValidator,
-    ZITADEL_ROLES_CLAIM,
     _extract_roles,
 )
-
 
 # ---- Test infrastructure ------------------------------------------------
 
