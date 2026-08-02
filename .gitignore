@@ -21,3 +21,18 @@ Thumbs.db
 
 # Wiki — generated output (committed only for spikes/samples)
 .otaman-wiki/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+*.env
+secrets.env
+*.secret
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+.maestro/

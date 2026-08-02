@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 try:
     import yaml
@@ -354,7 +353,9 @@ def load_known_agents(project_root: Path) -> set[str]:
     return set()
 
 
-from otaman_core._resolve import find_maestro_root as find_project_root  # shared resolver
+from otaman_core._resolve import (  # noqa: E402 — shared resolver re-export
+    find_maestro_root as find_project_root,
+)
 
 
 def main() -> int:

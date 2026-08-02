@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-
 from otaman_core import git_host as gh
 from otaman_core import git_host_github as ghgh
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

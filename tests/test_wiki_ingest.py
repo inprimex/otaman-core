@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
 from otaman_core.wiki import HAS_TREE_SITTER, WikiEntity, ingest
 from otaman_core.wiki._extract import extract_entities, module_dotted_id, parse_file
-from otaman_core.wiki._entity import WikiEntity as _WikiEntity, Relation
-
 
 pytestmark = pytest.mark.skipif(
     not HAS_TREE_SITTER,
@@ -229,7 +226,7 @@ class TestIngest:
         pycache.mkdir()
         (pycache / "cached.py").write_bytes(b"# cached\n")
         wiki_dir = tmp_path / "wiki"
-        stats = ingest([src_dir], wiki_dir, "r", src_root=tmp_path / "src")
+        ingest([src_dir], wiki_dir, "r", src_root=tmp_path / "src")
         cached_files = [f for f in wiki_dir.glob("*__pycache__*")]
         assert cached_files == []
 

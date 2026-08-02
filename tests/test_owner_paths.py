@@ -11,7 +11,6 @@ import pytest
 
 from otaman_core.owner_paths import (
     OwnerPathsError,
-    OwnerPathsIssue,
     PlatformConfig,
     RepoConfig,
     _match_path,
@@ -21,7 +20,6 @@ from otaman_core.owner_paths import (
     resolve_owners_for_paths,
     validate_owner_paths,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_platform_config
@@ -277,16 +275,7 @@ class TestValidateOwnerPaths:
         assert all(i.severity != "warning" for i in issues)
 
     def test_actual_overlap_warns(self):
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono", "owner": "root",
-                "owner-paths": {
-                    "apps/web/**": "a",
-                    "apps/web/**": "b",  # dict will dedupe; need different but equal-length
-                },
-            }],
-        })
-        # Dict dedup means we can't test true duplicates. Use two different
+        # Dict dedup means we can't test true duplicate keys. Use two different
         # patterns of equal length that match the same probe.
         cfg2 = parse_platform_config({
             "repos": [{

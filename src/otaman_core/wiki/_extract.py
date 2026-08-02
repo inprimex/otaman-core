@@ -7,14 +7,20 @@ from pathlib import Path
 
 try:
     import tree_sitter_python as _tspython
-    from tree_sitter import Language as _Language, Parser as _Parser
+    from tree_sitter import Language as _Language
+    from tree_sitter import Parser as _Parser
 
     _PY_LANGUAGE = _Language(_tspython.language())
     HAS_TREE_SITTER = True
 except ImportError:  # pragma: no cover
     HAS_TREE_SITTER = False
 
+from typing import TYPE_CHECKING
+
 from ._entity import WikiEntity
+
+if TYPE_CHECKING:
+    from tree_sitter import Node
 
 
 @dataclass
@@ -223,7 +229,7 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
     return parse_file(src_bytes, rel_path, repo_name).entities
 
 
-def _unwrap_decorated(node) -> object | None:
+def _unwrap_decorated(node: "Node") -> "Node | None":
     for child in node.children:
         if child.type == "function_definition":
             return child

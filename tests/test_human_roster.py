@@ -16,7 +16,6 @@ from otaman_core.human_roster import (
     parse_human_roster,
 )
 
-
 # ---------------------------------------------------------------------------
 # parse_human_roster — happy paths
 

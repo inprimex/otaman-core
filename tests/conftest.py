@@ -1,6 +1,8 @@
 """Session-wide fixtures for otaman-core tests."""
 
+import inspect
 import pathlib
+
 import pytest
 
 
@@ -21,7 +23,14 @@ def patch_path_home(tmp_path_factory):
     to temporarily narrow the boundary for that single test.
     """
     fake_home = tmp_path_factory.getbasetemp()
-    original = pathlib.Path.__dict__["home"]  # raw classmethod descriptor
+    # On Python <=3.12 `home` is defined on Path itself; on 3.13+ pathlib was
+    # restructured and Path inherits it, so Path.__dict__["home"] would raise
+    # KeyError. Grab the descriptor via MRO walk and remember where it lived.
+    had_own_home = "home" in pathlib.Path.__dict__
+    original = inspect.getattr_static(pathlib.Path, "home")
     pathlib.Path.home = classmethod(lambda cls: fake_home)
     yield fake_home
-    pathlib.Path.home = original
+    if had_own_home:
+        pathlib.Path.home = original  # put Path's own descriptor back
+    else:
+        del pathlib.Path.home  # drop the override; inherited original resurfaces

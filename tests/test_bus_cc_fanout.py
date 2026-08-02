@@ -11,15 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from otaman_core.bus.cc_fanout import (
     compute_effective_cc,
     evaluate_routing_rules,
     inject_x_cc,
     load_routing_rules,
 )
-
 
 # ---------------------------------------------------------------------------
 # load_routing_rules

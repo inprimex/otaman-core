@@ -10,7 +10,6 @@ import pytest
 from otaman_core import git_host as gh
 from otaman_core import git_host_gitea as ghgi
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 

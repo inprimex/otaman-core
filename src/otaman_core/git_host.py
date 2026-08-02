@@ -25,7 +25,6 @@ points to a ``SecretRef``; callers resolve at runtime.
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -38,7 +37,6 @@ from typing import Any, Protocol
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from otaman_core._secrets import SecretRef, resolve
-
 
 # ---------------------------------------------------------------------------
 # Provider classification

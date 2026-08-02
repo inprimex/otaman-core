@@ -19,16 +19,15 @@ Out of scope for now:
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from otaman_core.git_host import Comment, GitHostError, PullRequest, RepoInfo
-
 
 _DEFAULT_UA = "otaman-plugin"
 

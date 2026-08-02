@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import base64
 import json
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-
 from otaman_core import git_host as gh
 from otaman_core import git_host_azure as ghaz
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
