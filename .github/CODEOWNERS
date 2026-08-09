@@ -1,0 +1,11 @@
+# Code ownership for otaman-core.
+# These owners are requested for review on any matching PR.
+
+# Default owner for everything in the repo.
+*       @inprimex
+
+# Canonical schemas — changes ripple to every consuming repo, review carefully.
+/src/otaman_core/schemas/   @inprimex
+
+# CI, release, and contributor-facing policy files.
+/.github/                   @inprimex
