@@ -12,8 +12,8 @@ are accepted alongside their underscored equivalents.
 Typical platform.yaml shape::
 
     human-roster:
-      - name: Roman Starikov
-        email: starikov@inprimex.com
+      - name: Jane Doe
+        email: dev@otaman.ai
         roles: [cofounder, cto, cpo]
         pm-user-id: 1
 """
