@@ -1,9 +1,8 @@
 """Otaman platform kernel package.
 
-This is the destination for shared types, schemas, and primitives that have
-two or more consumers across the otaman-* polyrepo (per the two-consumer rule
-in ADR-001). Step 1 carve extracts kernel code from the legacy maestro-plugin  # legacy: prior name for otaman-plugin
-into this package incrementally; see otaman-meta/carve-plan.md for the plan.
+Home for shared types, schemas, and primitives with two or more consumers
+across the otaman-* repositories (the two-consumer rule from ADR-001). Code
+that only one repository needs stays in that repository.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
