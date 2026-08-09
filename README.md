@@ -27,6 +27,80 @@ Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.
 Code that is only used by one repo, HTTP servers, deployment config, or harness-specific logic.
 The two-consumer rule is the gatekeeping criterion: if fewer than two repos import it, it stays in the owning repo.
 
+## Installation
+
+`otaman-core` is not yet published to PyPI. Install it directly from GitHub:
+
+```bash
+pip install "git+https://github.com/inprimex/otaman-core.git"
+```
+
+Optional extras pull in backends that are otherwise import-time optional:
+
+```bash
+# OS keychain secret backend
+pip install "otaman-core[keyring] @ git+https://github.com/inprimex/otaman-core.git"
+
+# OIDC/JWT token validation
+pip install "otaman-core[oidc] @ git+https://github.com/inprimex/otaman-core.git"
+
+# tree-sitter code parsing (wiki ingestion)
+pip install "otaman-core[wiki] @ git+https://github.com/inprimex/otaman-core.git"
+```
+
+Requires Python 3.11+.
+
+## Usage
+
+`otaman-core` is a library of shared primitives, not an application. A few of the
+most commonly used public entry points:
+
+**Validate a `platform.yaml`** against the canonical schema:
+
+```python
+from pathlib import Path
+from otaman_core.validate_platform import load_yaml, validate_builtin
+
+config = load_yaml(Path("platform.yaml"))
+errors = validate_builtin(config)          # [] means the config is valid
+if errors:
+    for e in errors:
+        print("invalid:", e)
+```
+
+The same check is available as a module:
+
+```bash
+python -m otaman_core.validate_platform platform.yaml
+```
+
+**Load the human roster** (the `human-roster:` block of a `platform.yaml`):
+
+```python
+from pathlib import Path
+from otaman_core.human_roster import load_human_roster
+
+roster = load_human_roster(Path("platform.yaml"))
+for person in roster:
+    print(person.name, person.email, person.roles)
+# Each entry is a frozen HumanRosterEntry(name, email, roles, pm_user_id)
+```
+
+**Resolve the enforcement identity** for the current working directory (which
+agent owns this checkout, for ownership-enforcement decisions):
+
+```python
+from otaman_core.identity import resolve_enforcement_identity
+
+identity = resolve_enforcement_identity()   # defaults to the current directory
+print(identity)
+```
+
+> **API stability:** `otaman-core` is pre-1.0. Modules and types without a
+> leading underscore are the intended public surface; underscore-prefixed
+> modules (e.g. `otaman_core._resolve`) are internal and may change without
+> notice. See [docs.otaman.ai](https://docs.otaman.ai) for the full reference.
+
 ## Dependencies
 
 - Python 3.11+

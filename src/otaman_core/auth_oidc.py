@@ -4,8 +4,7 @@ Per ADR-010, otaman-bridge / otaman-runner / otaman-web validate JWTs
 issued by a configured OIDC provider (default: Zitadel) at the network
 boundary. This module is the shared validator used by all three services.
 
-Per the Zitadel integration spec (otaman-meta/strategy/zitadel-integration.md
-§4), the validator:
+The validator:
 - Fetches and caches the JWKS document for 5 minutes
 - Verifies token signature against the matching key by ``kid``
 - Verifies ``iss``, ``aud``, ``exp`` per RFC 7519 + RFC 8725
