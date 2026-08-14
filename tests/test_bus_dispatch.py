@@ -13,19 +13,22 @@ from otaman_core.owner_paths import parse_platform_config
 
 @pytest.fixture
 def platform():
-    return parse_platform_config({
-        "repos": [
-            {"name": "core", "owner": "core-agent"},
-            {
-                "name": "mono", "owner": "root-agent",
-                "owner-paths": {
-                    "apps/web/**": "web-agent",
-                    "apps/api/**": "api-agent",
-                    "packages/shared/**": "shared-agent",
+    return parse_platform_config(
+        {
+            "repos": [
+                {"name": "core", "owner": "core-agent"},
+                {
+                    "name": "mono",
+                    "owner": "root-agent",
+                    "owner-paths": {
+                        "apps/web/**": "web-agent",
+                        "apps/api/**": "api-agent",
+                        "packages/shared/**": "shared-agent",
+                    },
                 },
-            },
-        ],
-    })
+            ],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -58,37 +61,50 @@ class TestDispatchByTo:
 
 class TestDispatchByPath:
     def test_single_path_resolves(self, platform):
-        r = dispatch({
-            "repo": "mono",
-            "path": "apps/api/server.py",
-            "to": "human",  # to: is ignored when path: present
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": "apps/api/server.py",
+                "to": "human",  # to: is ignored when path: present
+            },
+            platform,
+        )
         assert r.mode == "path"
         assert r.recipients == ["api-agent"]
         assert r.per_path == {"apps/api/server.py": "api-agent"}
 
     def test_fallback_to_root_owner(self, platform):
-        r = dispatch({
-            "repo": "mono", "path": "tools/lint.py",
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": "tools/lint.py",
+            },
+            platform,
+        )
         assert r.recipients == ["root-agent"]
 
     def test_path_overrides_to(self, platform):
         """When path: is present, to: is ignored — recipient comes from owner-paths."""
-        r = dispatch({
-            "repo": "mono",
-            "path": "apps/web/page.tsx",
-            "to": "wrong-agent",
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": "apps/web/page.tsx",
+                "to": "wrong-agent",
+            },
+            platform,
+        )
         assert r.recipients == ["web-agent"]
 
 
 class TestMulticast:
     def test_multi_path_distinct_owners(self, platform):
-        r = dispatch({
-            "repo": "mono",
-            "path": ["apps/web/page.tsx", "apps/api/main.py"],
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": ["apps/web/page.tsx", "apps/api/main.py"],
+            },
+            platform,
+        )
         assert r.mode == "multicast"
         assert set(r.recipients) == {"web-agent", "api-agent"}
         assert r.per_path == {
@@ -97,19 +113,25 @@ class TestMulticast:
         }
 
     def test_multi_path_same_owner_not_multicast(self, platform):
-        r = dispatch({
-            "repo": "mono",
-            "path": ["apps/web/page.tsx", "apps/web/admin.tsx"],
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": ["apps/web/page.tsx", "apps/web/admin.tsx"],
+            },
+            platform,
+        )
         assert r.mode == "path"
         assert r.recipients == ["web-agent"]
 
     def test_recipients_are_sorted(self, platform):
         """Stable order — callers depend on this for diff-friendliness."""
-        r = dispatch({
-            "repo": "mono",
-            "path": ["apps/web/x", "apps/api/y", "packages/shared/z"],
-        }, platform)
+        r = dispatch(
+            {
+                "repo": "mono",
+                "path": ["apps/web/x", "apps/api/y", "packages/shared/z"],
+            },
+            platform,
+        )
         assert r.recipients == sorted(r.recipients)
 
 

@@ -97,7 +97,10 @@ class GitLabAdapter:
             raise GitHostError(f"GitLab API unreachable: {e}") from e
 
     def _get_json(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> tuple[Any, dict[str, str]]:
         status, body, headers = self._request("GET", path, params=params)
         if status != 200:
@@ -108,7 +111,11 @@ class GitLabAdapter:
             raise GitHostError(f"GitLab returned non-JSON body: {e}") from e
 
     def _post_json(
-        self, path: str, *, body: dict[str, Any], expected_status: int = 201,
+        self,
+        path: str,
+        *,
+        body: dict[str, Any],
+        expected_status: int = 201,
     ) -> Any:
         status, resp_body, _ = self._request("POST", path, body=body)
         if status != expected_status:
@@ -119,7 +126,11 @@ class GitLabAdapter:
             raise GitHostError(f"GitLab returned non-JSON body: {e}") from e
 
     def _http_error(
-        self, method: str, path: str, status: int, body: bytes,
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: bytes,
     ) -> GitHostError:
         hint = ""
         try:
@@ -134,12 +145,11 @@ class GitLabAdapter:
             pass
 
         if status == 401:
-            hint += " (token invalid / expired — regenerate in GitLab → Preferences → Access Tokens)"
-        elif status == 403:
             hint += (
-                " (token missing scope — `api` required to post notes, "
-                "`read_api` for reads)"
+                " (token invalid / expired — regenerate in GitLab → Preferences → Access Tokens)"
             )
+        elif status == 403:
+            hint += " (token missing scope — `api` required to post notes, `read_api` for reads)"
         elif status == 404:
             hint += (
                 " (project slug not found OR token can't see this project; "
@@ -154,7 +164,10 @@ class GitLabAdapter:
     # ----- pagination -----------------------------------------------------
 
     def _paginate(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[Any]:
         """GitLab paginates via Link header (same shape as GitHub)."""
         merged = dict(params or {})
@@ -168,18 +181,15 @@ class GitLabAdapter:
             data, headers = self._get_json(current_path, params=current_params)
             if not isinstance(data, list):
                 raise GitHostError(
-                    f"GitLab {current_path} expected a JSON array, "
-                    f"got {type(data).__name__}"
+                    f"GitLab {current_path} expected a JSON array, got {type(data).__name__}"
                 )
             items.extend(data)
 
-            next_url = _parse_link_next(
-                headers.get("Link") or headers.get("link") or ""
-            )
+            next_url = _parse_link_next(headers.get("Link") or headers.get("link") or "")
             if not next_url:
                 break
             if next_url.startswith(self.api_base):
-                current_path = next_url[len(self.api_base):]
+                current_path = next_url[len(self.api_base) :]
             else:
                 current_path = next_url
             current_params = None
@@ -214,13 +224,13 @@ class GitLabAdapter:
         pid = self._project_id(slug)
         data, _ = self._get_json(f"/projects/{pid}/merge_requests/{number}")
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitLab /merge_requests/{number} returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitLab /merge_requests/{number} returned {type(data).__name__}")
         return _to_pr(data, slug)
 
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None:
         pid = self._project_id(slug)
         data, _ = self._get_json(
@@ -238,7 +248,10 @@ class GitLabAdapter:
         return _to_pr(data[0], slug)
 
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment:
         """Post a discussion note on an MR."""
         if not body.strip():
@@ -249,13 +262,13 @@ class GitLabAdapter:
             body={"body": body},
         )
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitLab note POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitLab note POST returned {type(data).__name__}")
         return _to_comment(data, slug, pr_number, self.host)
 
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]:
         pid = self._project_id(slug)
         raw = self._paginate(
@@ -289,9 +302,7 @@ class GitLabAdapter:
             body["namespace_id"] = self._resolve_namespace_id(org)
         data = self._post_json("/projects", body=body)
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitLab project POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitLab project POST returned {type(data).__name__}")
         return _to_repo_info(data)
 
     def delete_repo(self, owner: str, name: str) -> None:
@@ -309,9 +320,7 @@ class GitLabAdapter:
         encoded = urllib.parse.quote(path, safe="")
         data, _ = self._get_json(f"/namespaces/{encoded}")
         if not isinstance(data, dict) or "id" not in data:
-            raise GitHostError(
-                f"GitLab namespace {path!r} not found or unreadable"
-            )
+            raise GitHostError(f"GitLab namespace {path!r} not found or unreadable")
         return int(data["id"])
 
 
@@ -360,7 +369,10 @@ def _to_repo_info(raw: dict[str, Any]) -> RepoInfo:
 
 
 def _to_comment(
-    raw: dict[str, Any], slug: str, pr_number: int, host: str,
+    raw: dict[str, Any],
+    slug: str,
+    pr_number: int,
+    host: str,
 ) -> Comment:
     author = raw.get("author") or {}
     # GitLab notes don't carry a direct web URL for the individual note;

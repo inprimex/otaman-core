@@ -58,17 +58,13 @@ class TestParseRemoteUrl:
         assert info.slug == "workspace/repo"
 
     def test_azure_devops_https(self):
-        info = gh.parse_remote_url(
-            "https://dev.azure.com/myorg/myproject/_git/my-repo"
-        )
+        info = gh.parse_remote_url("https://dev.azure.com/myorg/myproject/_git/my-repo")
         assert info.provider == "azure-devops"
         assert info.owner == "myorg/myproject"
         assert info.repo == "my-repo"
 
     def test_azure_devops_ssh(self):
-        info = gh.parse_remote_url(
-            "git@ssh.dev.azure.com:v3/myorg/myproject/my-repo"
-        )
+        info = gh.parse_remote_url("git@ssh.dev.azure.com:v3/myorg/myproject/my-repo")
         # Azure SSH uses a different path shape than HTTPS — we only
         # guarantee correct classification for the HTTPS shape.
         assert info is not None
@@ -84,9 +80,7 @@ class TestParseRemoteUrl:
         assert gh.parse_remote_url("not a url") is None
 
     def test_ssh_url_scheme(self):
-        info = gh.parse_remote_url(
-            "ssh://git@github.com/foo/bar.git"
-        )
+        info = gh.parse_remote_url("ssh://git@github.com/foo/bar.git")
         assert info.provider == "github"
         assert info.slug == "foo/bar"
 
@@ -101,8 +95,7 @@ class TestDetectForMaestro:
 
     def test_skips_repos_without_git(self, tmp_path):
         (tmp_path / "platform.yaml").write_text(
-            "project: test\nrepos:\n"
-            "  - name: norepo\n    path: ../norepo\n",
+            "project: test\nrepos:\n  - name: norepo\n    path: ../norepo\n",
             encoding="utf-8",
         )
         (tmp_path.parent / "norepo").mkdir(exist_ok=True)
@@ -117,34 +110,36 @@ class TestDetectForMaestro:
 
 class TestGitHostConfig:
     def test_from_dict_basic(self):
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": {
-                "sources": [{"type": "env", "name": "MAESTRO_GH_TOKEN"}],
-            },
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": {
+                    "sources": [{"type": "env", "name": "MAESTRO_GH_TOKEN"}],
+                },
+            }
+        )
         assert cfg.provider == "github"
         assert cfg.host == "github.com"  # default
-        assert cfg.token_ref.sources == [
-            {"type": "env", "name": "MAESTRO_GH_TOKEN"}
-        ]
+        assert cfg.token_ref.sources == [{"type": "env", "name": "MAESTRO_GH_TOKEN"}]
 
     def test_host_override(self):
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "gitlab",
-            "host": "gitlab.mycorp.io",
-            "token": "MAESTRO_GL_TOKEN",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "gitlab",
+                "host": "gitlab.mycorp.io",
+                "token": "MAESTRO_GL_TOKEN",
+            }
+        )
         assert cfg.host == "gitlab.mycorp.io"
 
     def test_token_short_form_env(self):
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "MAESTRO_GH_TOKEN",
-        })
-        assert cfg.token_ref.sources == [
-            {"type": "env", "name": "MAESTRO_GH_TOKEN"}
-        ]
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "MAESTRO_GH_TOKEN",
+            }
+        )
+        assert cfg.token_ref.sources == [{"type": "env", "name": "MAESTRO_GH_TOKEN"}]
 
     def test_missing_provider_raises(self):
         with pytest.raises(ValueError, match="provider"):
@@ -161,7 +156,8 @@ class TestLoadGitHostConfig:
 
     def test_no_block(self, tmp_path):
         (tmp_path / "platform.yaml").write_text(
-            "project: test\nrepos: []\n", encoding="utf-8",
+            "project: test\nrepos: []\n",
+            encoding="utf-8",
         )
         assert gh.load_git_host_config(tmp_path) is None
 
@@ -181,7 +177,8 @@ class TestLoadGitHostConfig:
 
     def test_malformed_returns_none(self, tmp_path):
         (tmp_path / "platform.yaml").write_text(
-            "git_host:\n  provider: github\n", encoding="utf-8",
+            "git_host:\n  provider: github\n",
+            encoding="utf-8",
         )
         assert gh.load_git_host_config(tmp_path) is None  # missing token
 
@@ -192,10 +189,15 @@ class TestLoadGitHostConfig:
 
 class TestValidateToken:
     def test_github_ok(self):
-        with patch.object(gh, "_do_get", return_value=(
-            200, json.dumps({"login": "octocat"}).encode("utf-8"),
-            {"X-OAuth-Scopes": "repo, read:user"},
-        )):
+        with patch.object(
+            gh,
+            "_do_get",
+            return_value=(
+                200,
+                json.dumps({"login": "octocat"}).encode("utf-8"),
+                {"X-OAuth-Scopes": "repo, read:user"},
+            ),
+        ):
             result = gh.validate_token("github", "github.com", "ghp_xxx")
         assert result.ok
         assert result.identity == "octocat"
@@ -208,30 +210,48 @@ class TestValidateToken:
         assert "401" in result.error
 
     def test_gitlab_ok(self):
-        with patch.object(gh, "_do_get", return_value=(
-            200, json.dumps({"username": "tanuki"}).encode("utf-8"), {},
-        )):
+        with patch.object(
+            gh,
+            "_do_get",
+            return_value=(
+                200,
+                json.dumps({"username": "tanuki"}).encode("utf-8"),
+                {},
+            ),
+        ):
             result = gh.validate_token("gitlab", "gitlab.com", "glpat-xxx")
         assert result.ok
         assert result.identity == "tanuki"
 
     def test_bitbucket_ok(self):
-        with patch.object(gh, "_do_get", return_value=(
-            200, json.dumps({"username": "octocat"}).encode("utf-8"), {},
-        )):
+        with patch.object(
+            gh,
+            "_do_get",
+            return_value=(
+                200,
+                json.dumps({"username": "octocat"}).encode("utf-8"),
+                {},
+            ),
+        ):
             result = gh.validate_token("bitbucket", "bitbucket.org", "xxx")
         assert result.ok
 
     def test_azure_ok(self):
-        with patch.object(gh, "_do_get", return_value=(
-            200,
-            json.dumps({
-                "authenticatedUser": {"providerDisplayName": "roman@example.com"}
-            }).encode("utf-8"),
-            {},
-        )):
+        with patch.object(
+            gh,
+            "_do_get",
+            return_value=(
+                200,
+                json.dumps(
+                    {"authenticatedUser": {"providerDisplayName": "roman@example.com"}}
+                ).encode("utf-8"),
+                {},
+            ),
+        ):
             result = gh.validate_token(
-                "azure-devops", "dev.azure.com", "xxx",
+                "azure-devops",
+                "dev.azure.com",
+                "xxx",
             )
         assert result.ok
         assert "roman" in result.identity
@@ -244,6 +264,7 @@ class TestValidateToken:
     def test_network_error(self):
         def boom(*_args, **_kwargs):
             raise RuntimeError("DNS lookup failed")
+
         with patch.object(gh, "_do_get", side_effect=boom):
             result = gh.validate_token("github", "github.com", "x")
         assert not result.ok
@@ -257,23 +278,33 @@ class TestValidateToken:
 class TestResolveAndValidate:
     def test_token_missing_from_sources(self, tmp_path, monkeypatch):
         monkeypatch.delenv("NONEXISTENT_GH_TOKEN_FOR_TEST", raising=False)
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "NONEXISTENT_GH_TOKEN_FOR_TEST",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "NONEXISTENT_GH_TOKEN_FOR_TEST",
+            }
+        )
         result = gh.resolve_and_validate(cfg, maestro_root=tmp_path)
         assert not result.ok
         assert "not found" in result.error
 
     def test_token_resolves_from_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MAESTRO_GH_TOKEN_TEST", "ghp_fake")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "MAESTRO_GH_TOKEN_TEST",
-        })
-        with patch.object(gh, "_do_get", return_value=(
-            200, json.dumps({"login": "me"}).encode("utf-8"), {},
-        )):
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "MAESTRO_GH_TOKEN_TEST",
+            }
+        )
+        with patch.object(
+            gh,
+            "_do_get",
+            return_value=(
+                200,
+                json.dumps({"login": "me"}).encode("utf-8"),
+                {},
+            ),
+        ):
             result = gh.resolve_and_validate(cfg, maestro_root=tmp_path)
         assert result.ok
         assert result.identity == "me"
@@ -350,20 +381,24 @@ class TestGitHostConfigOrg:
 
     def test_org_present(self, monkeypatch):
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "T",
-            "org": "inprimex",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "T",
+                "org": "inprimex",
+            }
+        )
         assert cfg.org == "inprimex"
 
     def test_org_empty_string_is_none(self, monkeypatch):
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "T",
-            "org": "",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "T",
+                "org": "",
+            }
+        )
         assert cfg.org is None
 
 
@@ -374,24 +409,30 @@ class TestGitHostConfigOrg:
 class TestGetAdapterGitea:
     def test_gitea_provider_returns_gitea_adapter(self, tmp_path, monkeypatch):
         from otaman_core import git_host_gitea as ghgi
+
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "gitea",
-            "host": "gitea.example.com",
-            "token": "T",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "gitea",
+                "host": "gitea.example.com",
+                "token": "T",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghgi.GiteaAdapter)
         assert adapter.provider == "gitea"
 
     def test_forgejo_provider_returns_gitea_adapter(self, tmp_path, monkeypatch):
         from otaman_core import git_host_gitea as ghgi
+
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "forgejo",
-            "host": "codeberg.example.com",
-            "token": "T",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "forgejo",
+                "host": "codeberg.example.com",
+                "token": "T",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghgi.GiteaAdapter)
         assert adapter.provider == "forgejo"

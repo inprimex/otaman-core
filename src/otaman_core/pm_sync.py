@@ -77,8 +77,10 @@ class PmSyncConfig:
     exclude_repos: list[str]
     webhook_target: str
     project_map: dict[str, int]
-    status_map: dict[str, str]   # Otaman state → PM status name, e.g. {"declared": "New", "done": "Closed"}
-    tracker: str                 # default issue tracker/type name, e.g. "Task"
+    status_map: dict[
+        str, str
+    ]  # Otaman state → PM status name, e.g. {"declared": "New", "done": "Closed"}
+    tracker: str  # default issue tracker/type name, e.g. "Task"
     custom_fields: dict[str, int] | None = None
     """Optional override of Easy8/Redmine custom-field name → id mapping.
 

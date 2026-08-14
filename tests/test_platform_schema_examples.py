@@ -44,7 +44,13 @@ except ImportError:
 
 
 # Carved to otaman-core: schema lives in the package, examples copied as fixtures
-SCHEMA_PATH = Path(__file__).resolve().parent.parent / "src" / "otaman_core" / "schemas" / "platform-schema.yaml"
+SCHEMA_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "otaman_core"
+    / "schemas"
+    / "platform-schema.yaml"
+)
 EXAMPLES_DIR = Path(__file__).resolve().parent / "fixtures" / "examples"
 
 
@@ -225,11 +231,13 @@ class TestRoutingRulesWhenTypeField:
 
     def test_all_three_fields_validate(self):
         schema = _load_schema()
-        config = _base_config({
-            "type": "outcome-proposal",
-            "to": "human",
-            "priority": "high",
-        })
+        config = _base_config(
+            {
+                "type": "outcome-proposal",
+                "to": "human",
+                "priority": "high",
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 
@@ -264,12 +272,14 @@ def _git_config(git: dict) -> dict:
 class TestGitFlowBranchConfig:
     def test_environments_valid_dev_main_split_validates(self):
         schema = _load_schema()
-        config = _git_config({
-            "environments": [
-                {"branch": "develop", "environment": "staging", "deploy_trigger": "on_push"},
-                {"branch": "main", "environment": "production", "deploy_trigger": "on_merge"},
-            ],
-        })
+        config = _git_config(
+            {
+                "environments": [
+                    {"branch": "develop", "environment": "staging", "deploy_trigger": "on_push"},
+                    {"branch": "main", "environment": "production", "deploy_trigger": "on_merge"},
+                ],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 
@@ -282,62 +292,74 @@ class TestGitFlowBranchConfig:
 
     def test_environments_missing_required_field_rejected(self):
         schema = _load_schema()
-        config = _git_config({
-            "environments": [{"branch": "main", "environment": "production"}],
-        })
+        config = _git_config(
+            {
+                "environments": [{"branch": "main", "environment": "production"}],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for missing deploy_trigger"
 
     def test_environments_invalid_deploy_trigger_rejected(self):
         schema = _load_schema()
-        config = _git_config({
-            "environments": [
-                {"branch": "main", "environment": "production", "deploy_trigger": "on_commit"},
-            ],
-        })
+        config = _git_config(
+            {
+                "environments": [
+                    {"branch": "main", "environment": "production", "deploy_trigger": "on_commit"},
+                ],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for unknown deploy_trigger enum value"
 
     def test_environments_tag_pattern_keyed_entry_validates(self):
         """otaman-deploy's actual shape: no branch, tag-triggered release."""
         schema = _load_schema()
-        config = _git_config({
-            "environments": [
-                {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "on_tag"},
-            ],
-        })
+        config = _git_config(
+            {
+                "environments": [
+                    {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "on_tag"},
+                ],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 
     def test_environments_manual_deploy_trigger_validates(self):
         schema = _load_schema()
-        config = _git_config({
-            "environments": [
-                {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "manual"},
-            ],
-        })
+        config = _git_config(
+            {
+                "environments": [
+                    {"tag_pattern": "v*", "environment": "production", "deploy_trigger": "manual"},
+                ],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 
     def test_environments_neither_branch_nor_tag_pattern_rejected(self):
         schema = _load_schema()
-        config = _git_config({
-            "environments": [
-                {"environment": "production", "deploy_trigger": "on_tag"},
-            ],
-        })
+        config = _git_config(
+            {
+                "environments": [
+                    {"environment": "production", "deploy_trigger": "on_tag"},
+                ],
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error when neither branch nor tag_pattern is present"
 
     def test_merge_policy_valid_full_declaration_validates(self):
         schema = _load_schema()
-        config = _git_config({
-            "merge_policy": {
-                "required_checks": ["pytest", "lint"],
-                "required_reviews": 1,
-                "merge_method": "squash",
-            },
-        })
+        config = _git_config(
+            {
+                "merge_policy": {
+                    "required_checks": ["pytest", "lint"],
+                    "required_reviews": 1,
+                    "merge_method": "squash",
+                },
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 
@@ -390,11 +412,13 @@ class TestRunnerAgentBootstrapPluginDir:
 
     def test_plugin_dir_valid_string_validates(self):
         schema = _load_schema()
-        config = _runner_config({
-            "mcp_config": ".mcp.json",
-            "system_prompt_append": "CLAUDE.md",
-            "plugin_dir": "~/.otaman/otaman-plugin-tree",
-        })
+        config = _runner_config(
+            {
+                "mcp_config": ".mcp.json",
+                "system_prompt_append": "CLAUDE.md",
+                "plugin_dir": "~/.otaman/otaman-plugin-tree",
+            }
+        )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
 

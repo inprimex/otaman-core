@@ -98,15 +98,11 @@ def dispatch(
             )
     else:
         raise DispatchError(
-            f"message 'path' must be a string or a list of strings, "
-            f"got {type(path_field).__name__}"
+            f"message 'path' must be a string or a list of strings, got {type(path_field).__name__}"
         )
 
     if platform.get_repo(repo_name) is None:
-        raise DispatchError(
-            f"repo {repo_name!r} not in platform.yaml; can't resolve "
-            "owner-paths"
-        )
+        raise DispatchError(f"repo {repo_name!r} not in platform.yaml; can't resolve owner-paths")
 
     per_path = resolve_owners_for_paths(platform, repo_name, paths)
     unique = sorted(set(per_path.values()))

@@ -151,9 +151,7 @@ def compute_effective_cc(
     candidates: list[str] = []
     if explicit_cc:
         candidates.extend(c for c in explicit_cc if isinstance(c, str) and c)
-    candidates.extend(
-        sorted(evaluate_routing_rules(routing_rules, to, priority, msg_type))
-    )
+    candidates.extend(sorted(evaluate_routing_rules(routing_rules, to, priority, msg_type)))
     for name in candidates:
         if name == to or name in seen:
             continue
@@ -174,7 +172,7 @@ def inject_x_cc(content: str) -> str:
         return content  # malformed frontmatter; caller will not reach here
     head, fm_body, tail = m.group(1), m.group(2), m.group(3)
     new_fm = fm_body.rstrip("\n") + "\nx-cc: true"
-    return head + new_fm + tail + content[m.end():]
+    return head + new_fm + tail + content[m.end() :]
 
 
 __all__ = [

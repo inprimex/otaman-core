@@ -62,7 +62,7 @@ from pathlib import Path
 from otaman_core.validate_platform import load_yaml, validate_builtin
 
 config = load_yaml(Path("platform.yaml"))
-errors = validate_builtin(config)          # [] means the config is valid
+errors = validate_builtin(config)  # [] means the config is valid
 if errors:
     for e in errors:
         print("invalid:", e)
@@ -92,7 +92,7 @@ agent owns this checkout, for ownership-enforcement decisions):
 ```python
 from otaman_core.identity import resolve_enforcement_identity
 
-identity = resolve_enforcement_identity()   # defaults to the current directory
+identity = resolve_enforcement_identity()  # defaults to the current directory
 print(identity)
 ```
 

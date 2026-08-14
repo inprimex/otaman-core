@@ -96,7 +96,8 @@ class TestGetPr:
     def test_state_merged(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_pr_payload(state="MERGED"),
+                status=200,
+                body=_pr_payload(state="MERGED"),
             )
             pr = adapter.get_pr("ws/app", 1)
         assert pr.state == "merged"
@@ -106,7 +107,8 @@ class TestGetPr:
         cross-provider state vocabulary."""
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_pr_payload(state="DECLINED"),
+                status=200,
+                body=_pr_payload(state="DECLINED"),
             )
             pr = adapter.get_pr("ws/app", 1)
         assert pr.state == "closed"
@@ -169,7 +171,8 @@ class TestGetPrForBranch:
     def test_found(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_paged([_pr_payload(id=5)]),
+                status=200,
+                body=_paged([_pr_payload(id=5)]),
             )
             pr = adapter.get_pr_for_branch("ws/app", "feature/x")
         assert pr is not None and pr.number == 5
@@ -185,7 +188,8 @@ class TestPostComment:
         """Bitbucket expects {content: {raw: ...}}, not flat {body: ...}."""
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=201, body=_comment_payload(),
+                status=201,
+                body=_comment_payload(),
             )
             adapter.post_comment("ws/app", 42, "hello")
         call = m.call_args
@@ -195,7 +199,8 @@ class TestPostComment:
     def test_success(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=201, body=_comment_payload(),
+                status=201,
+                body=_comment_payload(),
             )
             c = adapter.post_comment("ws/app", 42, "hello")
         assert c.id == 77
@@ -209,7 +214,8 @@ class TestPostComment:
     def test_401_surfaces_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=401, body={"error": {"message": "Unauthorized"}},
+                status=401,
+                body={"error": {"message": "Unauthorized"}},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.post_comment("ws/app", 1, "hi")
@@ -221,8 +227,7 @@ class TestListComments:
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
                 status=200,
-                body=_paged([_comment_payload(id=1),
-                             _comment_payload(id=2)]),
+                body=_paged([_comment_payload(id=1), _comment_payload(id=2)]),
             )
             comments = adapter.list_comments("ws/app", 1)
         assert [c.id for c in comments] == [1, 2]
@@ -231,8 +236,8 @@ class TestListComments:
 class TestNetworkErrors:
     def test_unreachable(self, adapter):
         import urllib.error
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("dns")):
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns")):
             with pytest.raises(gh.GitHostError, match="unreachable"):
                 adapter.get_pr("ws/app", 1)
 
@@ -240,10 +245,12 @@ class TestNetworkErrors:
 class TestFactory:
     def test_bitbucket_cfg_returns_bitbucket_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setenv("BB_TOK", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "bitbucket",
-            "token": "BB_TOK",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "bitbucket",
+                "token": "BB_TOK",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghbb.BitbucketAdapter)
         assert adapter.host == "bitbucket.org"
@@ -314,7 +321,9 @@ class TestBitbucketDeleteRepo:
         adapter = ghbb.BitbucketAdapter(token="t")
         with _patch.object(adapter, "_request") as m:
             m.return_value = (
-                404, json.dumps({"error": {"message": "Not Found"}}).encode(), {},
+                404,
+                json.dumps({"error": {"message": "Not Found"}}).encode(),
+                {},
             )
             with pytest.raises(gh.GitHostError):
                 adapter.delete_repo("o", "r")

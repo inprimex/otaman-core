@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Protocol
 
 
-class SpawnMode(str, Enum):
+class SpawnMode(str, Enum):  # noqa: UP042 — str-mixin kept for stable cross-repo value serialization
     """How the spawned session is wrapped for the user.
 
     INTERACTIVE: human attends in a tmux/Windows-Terminal session;
@@ -67,18 +67,18 @@ class SpawnRequest:
     existing launcher UX is preserved.
     """
 
-    agent: str                            # ownership identity, e.g. "backend-agent"
-    repo: str                             # owned repo name (from platform.yaml) or absolute path
-    project_root: Path                    # absolute path to the otaman workspace folder
+    agent: str  # ownership identity, e.g. "backend-agent"
+    repo: str  # owned repo name (from platform.yaml) or absolute path
+    project_root: Path  # absolute path to the otaman workspace folder
     mode: SpawnMode = SpawnMode.INTERACTIVE
-    harness: str = "claude-code"          # adapter identifier (ADR-003); v0 only "claude-code"
+    harness: str = "claude-code"  # adapter identifier (ADR-003); v0 only "claude-code"
     backend: BackendConfig | None = None  # None = runner picks the platform default
-    worktree: Path | None = None          # absolute path to checkout; None = use repo directly
-    account: str | None = None            # CLAUDE_CONFIG_DIR profile name
-    initial_prompt: str | None = None     # optional first message to seed the session
+    worktree: Path | None = None  # absolute path to checkout; None = use repo directly
+    account: str | None = None  # CLAUDE_CONFIG_DIR profile name
+    initial_prompt: str | None = None  # optional first message to seed the session
     env: dict[str, str] = field(default_factory=dict)
-    timeout: timedelta | None = None      # max session lifetime; None = unbounded
-    user: str | None = None               # authenticated user id (Zitadel sub claim); None = local
+    timeout: timedelta | None = None  # max session lifetime; None = unbounded
+    user: str | None = None  # authenticated user id (Zitadel sub claim); None = local
 
     def __post_init__(self) -> None:
         if not self.agent or not self.agent.strip():
@@ -89,8 +89,7 @@ class SpawnRequest:
             raise TypeError("SpawnRequest.project_root must be a Path")
         if self.mode is SpawnMode.HYBRID:
             raise NotImplementedError(
-                f"SpawnMode.{self.mode.name} is not implemented — "
-                "see ADR-009 backlog"
+                f"SpawnMode.{self.mode.name} is not implemented — see ADR-009 backlog"
             )
         if self.harness != "claude-code":
             raise NotImplementedError(
@@ -107,22 +106,22 @@ class AttachInfo:
     For HEADLESS sessions this is None.
     """
 
-    host: str                       # hostname / IP to attach to
-    backend: str                    # "tmux" | "windows-terminal" | "screen"
-    session_name: str               # tmux session name or WT title
-    attach_command: str             # exact shell command to attach
-    user: str | None = None         # OS user the session runs as
+    host: str  # hostname / IP to attach to
+    backend: str  # "tmux" | "windows-terminal" | "screen"
+    session_name: str  # tmux session name or WT title
+    attach_command: str  # exact shell command to attach
+    user: str | None = None  # OS user the session runs as
 
 
 @dataclass(frozen=True)
 class SpawnResult:
     """Outcome of a spawn() call."""
 
-    session_id: str                 # uuid; correlation key in audit + future NATS events
+    session_id: str  # uuid; correlation key in audit + future NATS events
     mode: SpawnMode
-    pid: int | None                 # OS pid of the harness process, if known
-    attach: AttachInfo | None       # interactive / hybrid only
-    audit_path: Path                # JSONL audit log location for this session
+    pid: int | None  # OS pid of the harness process, if known
+    attach: AttachInfo | None  # interactive / hybrid only
+    audit_path: Path  # JSONL audit log location for this session
     nats_subject: str | None = None  # set in Mode 2+ once NATS lands; None in v0
 
 
@@ -138,7 +137,7 @@ class TerminalBackend(Protocol):
     HTTP requests.
     """
 
-    name: str   # backend identifier echoed in AttachInfo.backend
+    name: str  # backend identifier echoed in AttachInfo.backend
 
     def spawn(
         self,

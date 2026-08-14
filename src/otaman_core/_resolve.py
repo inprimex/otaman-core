@@ -37,7 +37,9 @@ _WINDOWS_SHELLS = frozenset({"powershell", "pwsh", "cmd"})
 #     .otaman/agent                 # single-line text file; content is the agent name
 #
 # Shape (b) identity is NOT parsed by parse_marker_fields(); use read_agent() instead.
-_KNOWN_MARKER_FIELDS = frozenset({"otaman_root", "maestro_root", "expected_account", "agent"})  # legacy: maestro_root retained for one minor release
+_KNOWN_MARKER_FIELDS = frozenset(
+    {"otaman_root", "maestro_root", "expected_account", "agent"}
+)  # legacy: maestro_root retained for one minor release
 
 # Keys emitted at most once per interpreter process, keyed by a unique channel string.
 _warned: set[str] = set()
@@ -73,7 +75,7 @@ def _safe_marker_path(rel: str, marker: Path) -> bool:
     if dotdot_count > 3:
         _warn_once(
             f"traversal:{marker}:{rel}",
-            f"Marker at {marker} contains path with {dotdot_count} '..' levels: {rel!r}; rejected for security",
+            f"Marker at {marker} contains path with {dotdot_count} '..' levels: {rel!r}; rejected for security",  # noqa: E501
             UserWarning,
         )
         return False
@@ -84,14 +86,16 @@ def _safe_marker_path(rel: str, marker: Path) -> bool:
     except ValueError:
         _warn_once(
             f"outside-home:{marker}:{rel}",
-            f"Marker at {marker} resolves outside $HOME ({home}): {candidate}; rejected for security",
+            f"Marker at {marker} resolves outside $HOME ({home}): {candidate}; rejected for security",  # noqa: E501
             UserWarning,
         )
         return False
     return True
 
 
-def find_maestro_root(start: Path | None = None) -> Path | None:  # legacy: renamed find_otaman_root at 1.0
+def find_maestro_root(
+    start: Path | None = None,
+) -> Path | None:  # legacy: renamed find_otaman_root at 1.0
     """Find the otaman workspace root directory.
 
     Tries the standard resolution chain (marker file → OTAMAN_ROOT/
@@ -135,18 +139,20 @@ def _find_maestro_root_from(origin: Path) -> Path | None:  # legacy: renamed at 
             if legacy_marker.is_file():
                 _warn_once(
                     f"legacy-marker:{legacy_marker}",
-                    f"Found legacy '.maestro' marker at {legacy_marker}; "  # legacy: deprecation warning for .maestro marker
+                    f"Found legacy '.maestro' marker at {legacy_marker}; "  # legacy: deprecation warning for .maestro marker  # noqa: E501
                     "rename to '.otaman' before otaman-core 1.0",
                 )
                 marker = legacy_marker
         if marker.is_file():
             fields = parse_marker_fields(marker)
-            rel = fields.get("otaman_root") or fields.get("maestro_root")  # legacy: maestro_root fallback
+            rel = fields.get("otaman_root") or fields.get(
+                "maestro_root"
+            )  # legacy: maestro_root fallback
             if rel:
                 if "otaman_root" not in fields and _has_explicit_maestro_root(marker):
                     _warn_once(
                         f"legacy-field:{marker}",
-                        f"Marker at {marker} uses legacy 'maestro_root:' field; "  # legacy: maestro_root field deprecated
+                        f"Marker at {marker} uses legacy 'maestro_root:' field; "  # legacy: maestro_root field deprecated  # noqa: E501
                         "rename to 'otaman_root:' before otaman-core 1.0",
                     )
                 if not _safe_marker_path(rel, marker):
@@ -163,14 +169,14 @@ def _find_maestro_root_from(origin: Path) -> Path | None:  # legacy: renamed at 
     if otaman_env and maestro_env:
         _warn_once(
             "maestro-root-ignored",  # legacy: internal key for MAESTRO_ROOT-ignored warning
-            "MAESTRO_ROOT is set but OTAMAN_ROOT takes precedence; "  # legacy: warning for ignored MAESTRO_ROOT
+            "MAESTRO_ROOT is set but OTAMAN_ROOT takes precedence; "  # legacy: warning for ignored MAESTRO_ROOT  # noqa: E501
             "MAESTRO_ROOT will be removed in otaman-core 1.0",
         )
         env_root = otaman_env
     elif maestro_env:
         _warn_once(
             "maestro-root-deprecated",  # legacy: internal key for MAESTRO_ROOT-deprecated warning
-            "MAESTRO_ROOT is deprecated; set OTAMAN_ROOT instead. "  # legacy: warning for deprecated MAESTRO_ROOT
+            "MAESTRO_ROOT is deprecated; set OTAMAN_ROOT instead. "  # legacy: warning for deprecated MAESTRO_ROOT  # noqa: E501
             "Will be removed in otaman-core 1.0",
         )
         env_root = maestro_env
@@ -210,7 +216,7 @@ def resolve_worktree_main(path: Path | None = None) -> Path | None:
     main repo itself, or not in any repo). Defensive against malformed
     ``.git`` files: parse failures return ``None`` rather than raising.
 
-    Used by :func:`find_maestro_root` so that hooks fired from inside a  # legacy: find_maestro_root renamed at 1.0
+    Used by :func:`find_maestro_root` so that hooks fired from inside a
     linked worktree can still locate the otaman folder via the main
     repo's ``.otaman`` / ``.maestro`` marker.  # legacy: .maestro fallback removed at 1.0
     """
@@ -320,7 +326,9 @@ def parse_marker_fields(marker_path: Path) -> dict[str, str]:
                 fields.setdefault(key, value)
                 continue
         # Bare line → treat as maestro_root if not set (legacy: bare path mapping removed at 1.0)
-        fields.setdefault("maestro_root", line)  # legacy: bare path stored as maestro_root for compat
+        fields.setdefault(
+            "maestro_root", line
+        )  # legacy: bare path stored as maestro_root for compat
     return fields
 
 
@@ -475,12 +483,14 @@ def active_routing_env() -> str | None:
     Resolution order (most preferred first):
       1. ``OTAMAN_ACTIVE_ROUTING`` — current name (set by launcher).
       2. ``OTAMAN_ACTIVE_ACCOUNT`` — pre-rename otaman legacy.
-      3. ``MAESTRO_ACTIVE_ACCOUNT`` — pre-rebrand legacy.  # legacy: MAESTRO_ACTIVE_ACCOUNT removed at 1.0
+      3. ``MAESTRO_ACTIVE_ACCOUNT`` — pre-rebrand legacy.
     """
     return (
         _os.environ.get("OTAMAN_ACTIVE_ROUTING")
         or _os.environ.get("OTAMAN_ACTIVE_ACCOUNT")
-        or _os.environ.get("MAESTRO_ACTIVE_ACCOUNT")  # legacy: MAESTRO_ACTIVE_ACCOUNT removed at 1.0
+        or _os.environ.get(
+            "MAESTRO_ACTIVE_ACCOUNT"
+        )  # legacy: MAESTRO_ACTIVE_ACCOUNT removed at 1.0
     )
 
 

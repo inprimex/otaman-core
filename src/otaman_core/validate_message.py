@@ -120,12 +120,14 @@ VALID_TYPES = {
 # Privileged types: these assert that a human made a decision. Forging one
 # defeats the platform's HITL guarantee (security GAP finding F012, 2026-07-04)
 # — the validator therefore requires from: human on all of them.
-PRIVILEGED_TYPES = frozenset({
-    "human-decision",
-    "spec-change-approved",
-    "spec-change-rejected",
-    "emergency-halt",
-})
+PRIVILEGED_TYPES = frozenset(
+    {
+        "human-decision",
+        "spec-change-approved",
+        "spec-change-rejected",
+        "emergency-halt",
+    }
+)
 
 _HUMAN_SENDER = "human"
 
@@ -133,12 +135,14 @@ VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 VALID_RESPONSE_EFFORTS = {"XS", "S", "M", "L", "XL"}
 
 # Types that may carry a `path:` field for monorepo-path-ownership routing.
-PATH_ELIGIBLE_TYPES = frozenset({
-    "task-assignment",
-    "task-complete",
-    "spec-change-request",
-    "contract-change",
-})
+PATH_ELIGIBLE_TYPES = frozenset(
+    {
+        "task-assignment",
+        "task-complete",
+        "spec-change-request",
+        "contract-change",
+    }
+)
 
 REQUIRED_FIELDS = {"id", "from", "to", "type", "timestamp"}
 
@@ -222,7 +226,9 @@ def validate_message_content(
     # Priority validation
     priority = fm.get("priority")
     if priority and priority not in VALID_PRIORITIES:
-        errors.append(f"Unknown priority: '{priority}' (valid: {', '.join(sorted(VALID_PRIORITIES))})")
+        errors.append(
+            f"Unknown priority: '{priority}' (valid: {', '.join(sorted(VALID_PRIORITIES))})"
+        )
 
     # Status validation (legacy field, still accepted)
     status = fm.get("status")
@@ -243,7 +249,7 @@ def validate_message_content(
     if expects_response is not None:
         if not isinstance(expects_response, bool):
             errors.append(
-                f"Invalid expects-response: '{expects_response}' — must be a boolean (true or false)"
+                f"Invalid expects-response: '{expects_response}' — must be a boolean (true or false)"  # noqa: E501
             )
         elif not expects_response and msg_type == "task-assignment":
             errors.append(
@@ -287,8 +293,7 @@ def validate_message_content(
                 errors.append("path: every list entry must be a non-empty string")
         else:
             errors.append(
-                f"path: must be a string or a list of strings, "
-                f"got {type(path_field).__name__}"
+                f"path: must be a string or a list of strings, got {type(path_field).__name__}"
             )
         # path requires repo: context for the dispatcher to resolve owner-paths.
         repo_field = fm.get("repo")
@@ -306,9 +311,7 @@ def validate_message_content(
             recipients = [r.strip() for r in to_field.split(",") if r.strip()]
             unknown = [r for r in recipients if r not in known_agents and r not in ("human", "all")]
             if unknown:
-                errors.append(
-                    f"Unknown recipient agent(s): {unknown!r} (not in agents.yaml)"
-                )
+                errors.append(f"Unknown recipient agent(s): {unknown!r} (not in agents.yaml)")
 
     # Broadcast whitelist check (always; not gated on known_agents)
     msg_type = fm.get("type", "")
@@ -328,10 +331,7 @@ def validate_message_content(
 
     # Subject line check
     body = content.split("---", 2)[-1] if content.count("---") >= 2 else ""
-    has_subject = any(
-        line.strip().startswith("## Subject:")
-        for line in body.splitlines()
-    )
+    has_subject = any(line.strip().startswith("## Subject:") for line in body.splitlines())
     if not has_subject:
         errors.append("Missing '## Subject:' line in message body")
 
@@ -378,7 +378,10 @@ def main() -> int:
         return 0
 
     if len(sys.argv) < 2:
-        print("Usage: validate-message.py <message-file|bus-dir|project-root> [--all]", file=sys.stderr)
+        print(
+            "Usage: validate-message.py <message-file|bus-dir|project-root> [--all]",
+            file=sys.stderr,
+        )
         return 2
 
     target = Path(sys.argv[1]).resolve()
@@ -433,7 +436,9 @@ def main() -> int:
             print(f"OK: {filepath.name}")
 
     if total_errors:
-        print(f"\n{total_errors} error(s), {total_warnings} warning(s) in {len(files_to_check)} file(s)")
+        print(
+            f"\n{total_errors} error(s), {total_warnings} warning(s) in {len(files_to_check)} file(s)"  # noqa: E501
+        )
         return 1
     elif total_warnings:
         print(f"\n0 errors, {total_warnings} warning(s) in {len(files_to_check)} file(s)")

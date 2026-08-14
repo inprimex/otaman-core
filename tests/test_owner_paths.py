@@ -27,9 +27,11 @@ from otaman_core.owner_paths import (
 
 class TestParseHappyPath:
     def test_no_owner_paths(self):
-        cfg = parse_platform_config({
-            "repos": [{"name": "core", "owner": "core-agent"}],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [{"name": "core", "owner": "core-agent"}],
+            }
+        )
         assert len(cfg.repos) == 1
         r = cfg.repos[0]
         assert r.name == "core"
@@ -37,16 +39,20 @@ class TestParseHappyPath:
         assert r.owner_paths == {}
 
     def test_owner_paths_hyphenated(self):
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono",
-                "owner": "root-agent",
-                "owner-paths": {
-                    "apps/web/**": "web-agent",
-                    "apps/api/**": "api-agent",
-                },
-            }],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root-agent",
+                        "owner-paths": {
+                            "apps/web/**": "web-agent",
+                            "apps/api/**": "api-agent",
+                        },
+                    }
+                ],
+            }
+        )
         r = cfg.repos[0]
         assert r.owner_paths == {
             "apps/web/**": "web-agent",
@@ -54,13 +60,17 @@ class TestParseHappyPath:
         }
 
     def test_owner_paths_underscored_alias(self):
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono",
-                "owner": "root",
-                "owner_paths": {"apps/x/**": "x-agent"},
-            }],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root",
+                        "owner_paths": {"apps/x/**": "x-agent"},
+                    }
+                ],
+            }
+        )
         assert cfg.repos[0].owner_paths == {"apps/x/**": "x-agent"}
 
     def test_empty_repos_list(self):
@@ -91,21 +101,45 @@ class TestParseErrors:
 
     def test_owner_paths_not_mapping(self):
         with pytest.raises(OwnerPathsError, match="owner-paths"):
-            parse_platform_config({"repos": [{
-                "name": "x", "owner": "x-agent", "owner-paths": ["nope"],
-            }]})
+            parse_platform_config(
+                {
+                    "repos": [
+                        {
+                            "name": "x",
+                            "owner": "x-agent",
+                            "owner-paths": ["nope"],
+                        }
+                    ]
+                }
+            )
 
     def test_empty_glob_key(self):
         with pytest.raises(OwnerPathsError, match="non-empty strings"):
-            parse_platform_config({"repos": [{
-                "name": "x", "owner": "x-agent", "owner-paths": {"": "agent"},
-            }]})
+            parse_platform_config(
+                {
+                    "repos": [
+                        {
+                            "name": "x",
+                            "owner": "x-agent",
+                            "owner-paths": {"": "agent"},
+                        }
+                    ]
+                }
+            )
 
     def test_empty_agent_value(self):
         with pytest.raises(OwnerPathsError, match="non-empty agent name"):
-            parse_platform_config({"repos": [{
-                "name": "x", "owner": "x-agent", "owner-paths": {"a/**": ""},
-            }]})
+            parse_platform_config(
+                {
+                    "repos": [
+                        {
+                            "name": "x",
+                            "owner": "x-agent",
+                            "owner-paths": {"a/**": ""},
+                        }
+                    ]
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -172,18 +206,22 @@ class TestMatchPath:
 
 @pytest.fixture
 def mono_cfg() -> PlatformConfig:
-    return parse_platform_config({
-        "repos": [{
-            "name": "mono",
-            "owner": "root-agent",
-            "owner-paths": {
-                "apps/web/**": "web-agent",
-                "apps/api/**": "api-agent",
-                "packages/shared/**": "shared-agent",
-                "apps/web/admin/**": "admin-agent",  # more specific than apps/web/**
-            },
-        }],
-    })
+    return parse_platform_config(
+        {
+            "repos": [
+                {
+                    "name": "mono",
+                    "owner": "root-agent",
+                    "owner-paths": {
+                        "apps/web/**": "web-agent",
+                        "apps/api/**": "api-agent",
+                        "packages/shared/**": "shared-agent",
+                        "apps/web/admin/**": "admin-agent",  # more specific than apps/web/**
+                    },
+                }
+            ],
+        }
+    )
 
 
 class TestResolveOwnerForPath:
@@ -195,19 +233,31 @@ class TestResolveOwnerForPath:
 
     def test_specificity_tie_break(self, mono_cfg):
         """Longer glob string wins. admin/** beats web/**."""
-        assert resolve_owner_for_path(
-            mono_cfg, "mono", "apps/web/admin/dashboard.tsx",
-        ) == "admin-agent"
+        assert (
+            resolve_owner_for_path(
+                mono_cfg,
+                "mono",
+                "apps/web/admin/dashboard.tsx",
+            )
+            == "admin-agent"
+        )
 
     def test_less_specific_when_specific_doesnt_match(self, mono_cfg):
-        assert resolve_owner_for_path(
-            mono_cfg, "mono", "apps/web/landing.tsx",
-        ) == "web-agent"
+        assert (
+            resolve_owner_for_path(
+                mono_cfg,
+                "mono",
+                "apps/web/landing.tsx",
+            )
+            == "web-agent"
+        )
 
     def test_repo_with_no_owner_paths_returns_owner(self):
-        cfg = parse_platform_config({
-            "repos": [{"name": "core", "owner": "core-agent"}],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [{"name": "core", "owner": "core-agent"}],
+            }
+        )
         assert resolve_owner_for_path(cfg, "core", "any/path.py") == "core-agent"
 
     def test_unknown_repo_raises(self, mono_cfg):
@@ -222,7 +272,8 @@ class TestResolveOwnerForPath:
 class TestResolveOwnersForPaths:
     def test_multi_path_mapping(self, mono_cfg):
         result = resolve_owners_for_paths(
-            mono_cfg, "mono",
+            mono_cfg,
+            "mono",
             ["apps/web/page.tsx", "apps/api/main.py", "tools/lint.py"],
         )
         assert result == {
@@ -241,35 +292,48 @@ class TestResolveOwnersForPaths:
 
 class TestValidateOwnerPaths:
     def test_unknown_agent_reports_error(self):
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono", "owner": "root-agent",
-                "owner-paths": {"apps/x/**": "ghost-agent"},
-            }],
-        })
-        issues = validate_owner_paths(cfg, known_agents={"root-agent"})
-        assert any(
-            i.severity == "error" and "ghost-agent" in i.message for i in issues
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root-agent",
+                        "owner-paths": {"apps/x/**": "ghost-agent"},
+                    }
+                ],
+            }
         )
+        issues = validate_owner_paths(cfg, known_agents={"root-agent"})
+        assert any(i.severity == "error" and "ghost-agent" in i.message for i in issues)
 
     def test_known_agents_no_error(self):
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono", "owner": "root-agent",
-                "owner-paths": {"apps/web/**": "web-agent"},
-            }],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root-agent",
+                        "owner-paths": {"apps/web/**": "web-agent"},
+                    }
+                ],
+            }
+        )
         issues = validate_owner_paths(cfg, known_agents={"root-agent", "web-agent"})
         assert all(i.severity != "error" for i in issues)
 
     def test_overlap_same_length_emits_warning(self):
         """Two patterns of equal specificity both matching the same probe."""
-        cfg = parse_platform_config({
-            "repos": [{
-                "name": "mono", "owner": "root",
-                "owner-paths": {"apps/*/web": "a", "apps/*/api": "b"},
-            }],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root",
+                        "owner-paths": {"apps/*/web": "a", "apps/*/api": "b"},
+                    }
+                ],
+            }
+        )
         # No overlap here — different last segment. Should NOT warn.
         issues = validate_owner_paths(cfg, known_agents={"root", "a", "b"})
         assert all(i.severity != "warning" for i in issues)
@@ -277,23 +341,30 @@ class TestValidateOwnerPaths:
     def test_actual_overlap_warns(self):
         # Dict dedup means we can't test true duplicate keys. Use two different
         # patterns of equal length that match the same probe.
-        cfg2 = parse_platform_config({
-            "repos": [{
-                "name": "mono", "owner": "root",
-                "owner-paths": {
-                    "apps/x/**": "a",
-                    "apps/?/**": "b",  # same length, both match apps/x/anything
-                },
-            }],
-        })
+        cfg2 = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "mono",
+                        "owner": "root",
+                        "owner-paths": {
+                            "apps/x/**": "a",
+                            "apps/?/**": "b",  # same length, both match apps/x/anything
+                        },
+                    }
+                ],
+            }
+        )
         issues = validate_owner_paths(cfg2, known_agents={"root", "a", "b"})
         warnings = [i for i in issues if i.severity == "warning"]
         assert warnings, f"expected overlap warning, got {issues}"
 
     def test_no_owner_paths_no_issues(self):
-        cfg = parse_platform_config({
-            "repos": [{"name": "core", "owner": "core-agent"}],
-        })
+        cfg = parse_platform_config(
+            {
+                "repos": [{"name": "core", "owner": "core-agent"}],
+            }
+        )
         assert validate_owner_paths(cfg, known_agents={"core-agent"}) == []
 
 
@@ -303,14 +374,16 @@ class TestValidateOwnerPaths:
 
 class TestPlatformConfig:
     def test_get_repo(self):
-        cfg = PlatformConfig(repos=[
-            RepoConfig(name="a", owner="a-agent"),
-            RepoConfig(name="b", owner="b-agent"),
-        ])
+        cfg = PlatformConfig(
+            repos=[
+                RepoConfig(name="a", owner="a-agent"),
+                RepoConfig(name="b", owner="b-agent"),
+            ]
+        )
         assert cfg.get_repo("a").name == "a"
         assert cfg.get_repo("missing") is None
 
     def test_frozen(self):
         rc = RepoConfig(name="x", owner="x-agent")
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):
             rc.name = "y"  # type: ignore[misc]
