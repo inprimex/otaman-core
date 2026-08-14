@@ -22,9 +22,11 @@ from otaman_core.human_roster import (
 
 class TestParseHappyPath:
     def test_minimal_entry(self):
-        entries = parse_human_roster([
-            {"name": "Alice", "email": "a@x.com", "roles": ["cto"]},
-        ])
+        entries = parse_human_roster(
+            [
+                {"name": "Alice", "email": "a@x.com", "roles": ["cto"]},
+            ]
+        )
         assert len(entries) == 1
         e = entries[0]
         assert e.name == "Alice"
@@ -33,29 +35,37 @@ class TestParseHappyPath:
         assert e.pm_user_id is None
 
     def test_entry_with_pm_user_id(self):
-        entries = parse_human_roster([
-            {"name": "Roman", "email": "r@x.com", "roles": ["cofounder"], "pm-user-id": 1},
-        ])
+        entries = parse_human_roster(
+            [
+                {"name": "Roman", "email": "r@x.com", "roles": ["cofounder"], "pm-user-id": 1},
+            ]
+        )
         assert entries[0].pm_user_id == 1
 
     def test_pm_user_id_underscored_alias_accepted(self):
         """Mirrors the pm_sync hyphen/underscore tolerance."""
-        entries = parse_human_roster([
-            {"name": "Roman", "email": "r@x.com", "roles": ["cto"], "pm_user_id": 7},
-        ])
+        entries = parse_human_roster(
+            [
+                {"name": "Roman", "email": "r@x.com", "roles": ["cto"], "pm_user_id": 7},
+            ]
+        )
         assert entries[0].pm_user_id == 7
 
     def test_multiple_roles(self):
-        entries = parse_human_roster([
-            {"name": "R", "email": "r@x.com", "roles": ["cofounder", "cto", "cpo"]},
-        ])
+        entries = parse_human_roster(
+            [
+                {"name": "R", "email": "r@x.com", "roles": ["cofounder", "cto", "cpo"]},
+            ]
+        )
         assert entries[0].roles == ["cofounder", "cto", "cpo"]
 
     def test_multiple_entries(self):
-        entries = parse_human_roster([
-            {"name": "R", "email": "r@x.com", "roles": ["cofounder"], "pm-user-id": 1},
-            {"name": "A", "email": "a@x.com", "roles": ["developer"]},
-        ])
+        entries = parse_human_roster(
+            [
+                {"name": "R", "email": "r@x.com", "roles": ["cofounder"], "pm-user-id": 1},
+                {"name": "A", "email": "a@x.com", "roles": ["developer"]},
+            ]
+        )
         assert len(entries) == 2
         assert entries[0].pm_user_id == 1
         assert entries[1].pm_user_id is None
@@ -74,42 +84,54 @@ class TestParseHappyPath:
 class TestParseErrors:
     def test_empty_roles_raises_with_name(self):
         with pytest.raises(ConfigError) as ei:
-            parse_human_roster([
-                {"name": "Alice", "email": "a@x.com", "roles": []},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "Alice", "email": "a@x.com", "roles": []},
+                ]
+            )
         # Error message must reference the entry's name so users can find it.
         assert "Alice" in str(ei.value)
         assert "roles" in str(ei.value)
 
     def test_missing_name_raises(self):
         with pytest.raises(ConfigError, match="name"):
-            parse_human_roster([
-                {"email": "a@x.com", "roles": ["cto"]},
-            ])
+            parse_human_roster(
+                [
+                    {"email": "a@x.com", "roles": ["cto"]},
+                ]
+            )
 
     def test_missing_email_raises(self):
         with pytest.raises(ConfigError, match="email"):
-            parse_human_roster([
-                {"name": "Alice", "roles": ["cto"]},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "Alice", "roles": ["cto"]},
+                ]
+            )
 
     def test_missing_roles_raises(self):
         with pytest.raises(ConfigError, match="roles"):
-            parse_human_roster([
-                {"name": "Alice", "email": "a@x.com"},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "Alice", "email": "a@x.com"},
+                ]
+            )
 
     def test_roles_not_list_raises(self):
         with pytest.raises(ConfigError, match="roles"):
-            parse_human_roster([
-                {"name": "Alice", "email": "a@x.com", "roles": "cto"},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "Alice", "email": "a@x.com", "roles": "cto"},
+                ]
+            )
 
     def test_role_value_not_string_raises(self):
         with pytest.raises(ConfigError, match="roles"):
-            parse_human_roster([
-                {"name": "Alice", "email": "a@x.com", "roles": [42]},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "Alice", "email": "a@x.com", "roles": [42]},
+                ]
+            )
 
     def test_block_not_list_raises(self):
         with pytest.raises(ConfigError, match="list"):
@@ -121,22 +143,28 @@ class TestParseErrors:
 
     def test_pm_user_id_string_raises(self):
         with pytest.raises(ConfigError, match="pm-user-id"):
-            parse_human_roster([
-                {"name": "A", "email": "a@x.com", "roles": ["cto"], "pm-user-id": "1"},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "A", "email": "a@x.com", "roles": ["cto"], "pm-user-id": "1"},
+                ]
+            )
 
     def test_pm_user_id_bool_raises(self):
         """Bools are technically ints in Python — reject explicitly."""
         with pytest.raises(ConfigError, match="pm-user-id"):
-            parse_human_roster([
-                {"name": "A", "email": "a@x.com", "roles": ["cto"], "pm-user-id": True},
-            ])
+            parse_human_roster(
+                [
+                    {"name": "A", "email": "a@x.com", "roles": ["cto"], "pm-user-id": True},
+                ]
+            )
 
     def test_error_uses_index_when_name_missing(self):
         with pytest.raises(ConfigError, match=r"\[0\]"):
-            parse_human_roster([
-                {"email": "a@x.com", "roles": ["cto"]},
-            ])
+            parse_human_roster(
+                [
+                    {"email": "a@x.com", "roles": ["cto"]},
+                ]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +201,7 @@ class TestLoadHumanRoster:
         create unassigned issues mysteriously."""
         p = tmp_path / "platform.yaml"
         p.write_text(
-            "human-roster:\n"
-            "  - name: Alice\n"
-            "    email: a@x.com\n"
-            "    roles: []\n",
+            "human-roster:\n  - name: Alice\n    email: a@x.com\n    roles: []\n",
             encoding="utf-8",
         )
         with pytest.raises(ConfigError):
@@ -203,5 +228,5 @@ class TestHumanRosterEntry:
 
     def test_frozen(self):
         e = HumanRosterEntry(name="A", email="a@x.com", roles=["cto"])
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):
             e.name = "B"  # type: ignore[misc]

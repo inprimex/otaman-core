@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from ._entity import WikiEntity
 from ._extract import parse_file
@@ -42,10 +42,10 @@ def ingest(
     # -----------------------------------------------------------------------
     # Pass 1: parse all files, accumulate raw data
     # -----------------------------------------------------------------------
-    all_entities: dict[str, WikiEntity] = {}          # id -> entity
-    module_python_to_id: dict[str, str] = {}          # "otaman_core._resolve" -> entity_id
-    all_imports: dict[str, list[str]] = {}             # module_entity_id -> [python_module_paths]
-    all_bases: dict[str, list[str]] = {}               # class_entity_id -> [base_names]
+    all_entities: dict[str, WikiEntity] = {}  # id -> entity
+    module_python_to_id: dict[str, str] = {}  # "otaman_core._resolve" -> entity_id
+    all_imports: dict[str, list[str]] = {}  # module_entity_id -> [python_module_paths]
+    all_bases: dict[str, list[str]] = {}  # class_entity_id -> [base_names]
     total_loc = 0
     files_processed = 0
 
@@ -107,10 +107,16 @@ def ingest(
         # parent → children (downward links, split by kind)
         child_ids = sorted(children.get(entity_id, []))
         if child_ids:
-            components = [(cid, _display(cid)) for cid in child_ids
-                         if all_entities.get(cid) and all_entities[cid].kind == "component"]
-            funcs = [(cid, _display(cid)) for cid in child_ids
-                     if all_entities.get(cid) and all_entities[cid].kind != "component"]
+            components = [
+                (cid, _display(cid))
+                for cid in child_ids
+                if all_entities.get(cid) and all_entities[cid].kind == "component"
+            ]
+            funcs = [
+                (cid, _display(cid))
+                for cid in child_ids
+                if all_entities.get(cid) and all_entities[cid].kind != "component"
+            ]
             for cid, cdisplay in components:
                 relations.append(("Contains", cid, cdisplay))
             for cid, cdisplay in funcs:

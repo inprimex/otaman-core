@@ -124,7 +124,10 @@ def validate_builtin(config: dict[str, Any]) -> list[str]:
                     errors.append(f"{prefix}.launch.commands: all items must be strings")
                 if "color" in launch:
                     import re
-                    if not isinstance(launch["color"], str) or not re.match(r"^#[0-9a-fA-F]{6}$", launch["color"]):
+
+                    if not isinstance(launch["color"], str) or not re.match(
+                        r"^#[0-9a-fA-F]{6}$", launch["color"]
+                    ):
                         errors.append(f"{prefix}.launch.color: must be a hex color like '#4169E1'")
                 if "title" in launch and not isinstance(launch["title"], str):
                     errors.append(f"{prefix}.launch.title: must be a string")

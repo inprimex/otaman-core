@@ -50,10 +50,10 @@ class RemoteInfo:
     """Parsed view of a ``git remote`` URL."""
 
     provider: Provider
-    host: str             # "github.com" | "gitlab.mycorp.io" | …
-    owner: str            # user or org (or Azure "organization/project")
-    repo: str             # bare repo name without .git suffix
-    raw_url: str          # original remote URL
+    host: str  # "github.com" | "gitlab.mycorp.io" | …
+    owner: str  # user or org (or Azure "organization/project")
+    repo: str  # bare repo name without .git suffix
+    raw_url: str  # original remote URL
 
     @property
     def slug(self) -> str:
@@ -63,8 +63,11 @@ class RemoteInfo:
     def is_self_hosted(self) -> bool:
         """True when host isn't one of the standard SaaS hosts."""
         return self.host not in (
-            "github.com", "gitlab.com", "bitbucket.org",
-            "dev.azure.com", "ssh.dev.azure.com",
+            "github.com",
+            "gitlab.com",
+            "bitbucket.org",
+            "dev.azure.com",
+            "ssh.dev.azure.com",
         )
 
 
@@ -73,18 +76,10 @@ class RemoteInfo:
 #   - SSH shape v2: ssh://git@host/owner/repo(.git)?
 #   - HTTPS shape:  https://[user@]host/owner/repo(.git)?
 #   - Azure DevOps: https://dev.azure.com/org/project/_git/repo
-_RE_SSH_LEGACY = re.compile(
-    r"^(?P<user>[^@\s]+)@(?P<host>[^:]+):(?P<path>.+?)(\.git)?$"
-)
-_RE_SSH_URL = re.compile(
-    r"^ssh://(?:[^@]+@)?(?P<host>[^/]+)/(?P<path>.+?)(\.git)?$"
-)
-_RE_HTTPS = re.compile(
-    r"^https?://(?:[^@/]+@)?(?P<host>[^/]+)/(?P<path>.+?)(\.git)?$"
-)
-_RE_AZDO_PATH = re.compile(
-    r"^(?P<org>[^/]+)/(?P<project>[^/]+)/_git/(?P<repo>.+)$"
-)
+_RE_SSH_LEGACY = re.compile(r"^(?P<user>[^@\s]+)@(?P<host>[^:]+):(?P<path>.+?)(\.git)?$")
+_RE_SSH_URL = re.compile(r"^ssh://(?:[^@]+@)?(?P<host>[^/]+)/(?P<path>.+?)(\.git)?$")
+_RE_HTTPS = re.compile(r"^https?://(?:[^@/]+@)?(?P<host>[^/]+)/(?P<path>.+?)(\.git)?$")
+_RE_AZDO_PATH = re.compile(r"^(?P<org>[^/]+)/(?P<project>[^/]+)/_git/(?P<repo>.+)$")
 
 
 def parse_remote_url(url: str, *, provider_hint: Provider | None = None) -> RemoteInfo | None:
@@ -118,7 +113,10 @@ def parse_remote_url(url: str, *, provider_hint: Provider | None = None) -> Remo
 
 
 def _classify(
-    host: str, path: str, raw_url: str, provider_hint: Provider | None = None,
+    host: str,
+    path: str,
+    raw_url: str,
+    provider_hint: Provider | None = None,
 ) -> RemoteInfo:
     host = host.strip().lower()
     path = path.strip().strip("/").removesuffix(".git")
@@ -169,7 +167,10 @@ def detect_remote_for_repo(repo_dir: Path) -> RemoteInfo | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_dir), "remote", "get-url", "origin"],
-            capture_output=True, text=True, check=False, timeout=5,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -178,13 +179,16 @@ def detect_remote_for_repo(repo_dir: Path) -> RemoteInfo | None:
     return parse_remote_url(result.stdout.strip())
 
 
-def detect_remotes_for_maestro(maestro_root: Path) -> list[tuple[str, RemoteInfo | None]]:  # legacy: renamed detect_remotes_for_otaman at 1.0
+def detect_remotes_for_maestro(
+    maestro_root: Path,
+) -> list[tuple[str, RemoteInfo | None]]:  # legacy: renamed detect_remotes_for_otaman at 1.0
     """Walk repos listed in platform.yaml; return ``(repo_name, RemoteInfo|None)``.
 
     Used by ``otaman doctor`` to summarize "what git hosts is this
     project actually hooked up to?" in one glance.
     """
     import yaml
+
     platform_yaml = maestro_root / "platform.yaml"
     if not platform_yaml.is_file():
         return []
@@ -194,7 +198,7 @@ def detect_remotes_for_maestro(maestro_root: Path) -> list[tuple[str, RemoteInfo
         return []
 
     out: list[tuple[str, RemoteInfo | None]] = []
-    for repo_cfg in (data.get("repos") or []):
+    for repo_cfg in data.get("repos") or []:
         if not isinstance(repo_cfg, dict):
             continue
         name = repo_cfg.get("name")
@@ -233,7 +237,7 @@ class GitHostConfig:
     org: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "GitHostConfig":
+    def from_dict(cls, data: dict[str, Any]) -> GitHostConfig:
         provider = str(data.get("provider") or "").strip().lower()
         if not provider:
             raise ValueError("git_host: provider is required")
@@ -262,14 +266,15 @@ def default_host_for(provider: Provider) -> str:
         "gitlab": "gitlab.com",
         "bitbucket": "bitbucket.org",
         "azure-devops": "dev.azure.com",
-        "gitea": "",       # always self-hosted; host: required in platform.yaml
-        "forgejo": "",     # same
+        "gitea": "",  # always self-hosted; host: required in platform.yaml
+        "forgejo": "",  # same
     }.get(provider, "")
 
 
 def load_git_host_config(maestro_root: Path) -> GitHostConfig | None:
     """Read ``git_host:`` from platform.yaml. None when absent."""
     import yaml
+
     platform_yaml = maestro_root / "platform.yaml"
     if not platform_yaml.is_file():
         return None
@@ -293,7 +298,7 @@ def load_git_host_config(maestro_root: Path) -> GitHostConfig | None:
 @dataclass
 class ValidationResult:
     ok: bool
-    identity: str = ""   # "octocat", "tanuki@gitlab.com", …
+    identity: str = ""  # "octocat", "tanuki@gitlab.com", …
     scopes: list[str] | None = None
     error: str = ""
 
@@ -318,7 +323,9 @@ def validate_token(provider: Provider, host: str, token: str) -> ValidationResul
     return ValidationResult(ok=False, error=f"unknown provider: {provider!r}")
 
 
-def _do_get(url: str, headers: dict[str, str], timeout: float = 5.0) -> tuple[int, bytes, dict[str, str]]:
+def _do_get(
+    url: str, headers: dict[str, str], timeout: float = 5.0
+) -> tuple[int, bytes, dict[str, str]]:
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -396,7 +403,8 @@ def _validate_bitbucket(token: str) -> ValidationResult:
 def _validate_azure(host: str, token: str) -> ValidationResult:
     # Azure DevOps accepts Basic auth with empty user + PAT as password.
     import base64
-    auth = base64.b64encode(f":{token}".encode("utf-8")).decode("ascii")
+
+    auth = base64.b64encode(f":{token}".encode()).decode("ascii")
     try:
         status, body, _headers = _do_get(
             f"https://{host}/_apis/connectionData?api-version=7.1",
@@ -431,8 +439,7 @@ def resolve_and_validate(
     if not token:
         return ValidationResult(
             ok=False,
-            error="token not found in configured sources "
-                  "(env / .otaman/secrets.env / keychain)",
+            error="token not found in configured sources (env / .otaman/secrets.env / keychain)",
         )
     return validate_token(cfg.provider, cfg.host, token)
 
@@ -452,13 +459,13 @@ class PullRequest:
 
     number: int
     title: str
-    state: str                 # "open" | "closed" | "merged"
+    state: str  # "open" | "closed" | "merged"
     author: str
-    head_ref: str              # source branch
-    base_ref: str              # target branch
+    head_ref: str  # source branch
+    base_ref: str  # target branch
     head_sha: str
-    url: str                   # web URL (for humans)
-    body: str = ""             # PR description
+    url: str  # web URL (for humans)
+    body: str = ""  # PR description
     draft: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -470,7 +477,7 @@ class Comment:
     id: int
     author: str
     body: str
-    created_at: str            # ISO-8601 from the provider
+    created_at: str  # ISO-8601 from the provider
     url: str
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -485,10 +492,10 @@ class RepoInfo:
     """
 
     name: str
-    owner: str          # org or user that owns the repo
-    clone_url: str      # HTTPS clone URL (https://host/owner/repo.git)
-    ssh_url: str        # SSH clone URL (git@host:owner/repo.git)
-    html_url: str       # web URL for humans
+    owner: str  # org or user that owns the repo
+    clone_url: str  # HTTPS clone URL (https://host/owner/repo.git)
+    ssh_url: str  # SSH clone URL (git@host:owner/repo.git)
+    html_url: str  # web URL for humans
     private: bool
 
 
@@ -510,13 +517,20 @@ class GitHostAdapter(Protocol):
     def list_open_prs(self, slug: str) -> list[PullRequest]: ...
     def get_pr(self, slug: str, number: int) -> PullRequest: ...
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None: ...
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment: ...
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]: ...
 
     # Repo lifecycle — used by `otaman project add` / `otaman project remove --delete-remote`
@@ -563,18 +577,23 @@ def get_adapter(
     # partial install that's missing one adapter doesn't break the rest.
     if cfg.provider == "github":
         from otaman_core.git_host_github import GitHubAdapter  # noqa: PLC0415
+
         return GitHubAdapter(host=cfg.host, token=token)
     if cfg.provider == "gitlab":
         from otaman_core.git_host_gitlab import GitLabAdapter  # noqa: PLC0415
+
         return GitLabAdapter(host=cfg.host, token=token)
     if cfg.provider == "bitbucket":
         from otaman_core.git_host_bitbucket import BitbucketAdapter  # noqa: PLC0415
+
         return BitbucketAdapter(host=cfg.host, token=token)
     if cfg.provider == "azure-devops":
         from otaman_core.git_host_azure import AzureDevOpsAdapter  # noqa: PLC0415
+
         return AzureDevOpsAdapter(host=cfg.host, token=token)
     if cfg.provider in ("gitea", "forgejo"):
         from otaman_core.git_host_gitea import GiteaAdapter  # noqa: PLC0415
+
         return GiteaAdapter(host=cfg.host, token=token, provider=cfg.provider)
 
     raise GitHostError(

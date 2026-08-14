@@ -109,7 +109,8 @@ class TestGetPr:
     def test_404_raises_githosterror(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=404, body={"message": "Not Found"},
+                status=404,
+                body={"message": "Not Found"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.get_pr("o/r", 999)
@@ -120,12 +121,12 @@ class TestGetPr:
     def test_401_surfaces_token_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=401, body={"message": "Bad credentials"},
+                status=401,
+                body={"message": "Bad credentials"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.get_pr("o/r", 1)
-        assert "token invalid" in str(ei.value).lower() \
-            or "expired" in str(ei.value).lower()
+        assert "token invalid" in str(ei.value).lower() or "expired" in str(ei.value).lower()
 
 
 class TestListOpenPrs:
@@ -144,10 +145,11 @@ class TestListOpenPrs:
         page2 = [_pr_payload(number=2)]
         responses = [
             _mock_response(
-                status=200, body=page1,
+                status=200,
+                body=page1,
                 headers={
                     "Link": (
-                        '<https://api.github.com/repositories/0/pulls?page=2>; '
+                        "<https://api.github.com/repositories/0/pulls?page=2>; "
                         'rel="next", <…>; rel="last"'
                     ),
                 },
@@ -168,7 +170,8 @@ class TestGetPrForBranch:
     def test_found(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=[_pr_payload(number=7)],
+                status=200,
+                body=[_pr_payload(number=7)],
             )
             pr = adapter.get_pr_for_branch("octo/app", "feature/xyz")
         assert pr is not None
@@ -199,7 +202,8 @@ class TestPostComment:
     def test_success(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=201, body=_comment_payload(),
+                status=201,
+                body=_comment_payload(),
             )
             c = adapter.post_comment("o/r", 42, "LGTM")
         assert c.id == 1001
@@ -215,18 +219,19 @@ class TestPostComment:
     def test_403_forbidden_surfaces_scope_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=403, body={"message": "Resource not accessible"},
+                status=403,
+                body={"message": "Resource not accessible"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.post_comment("o/r", 1, "hi")
-        assert "scope" in str(ei.value).lower() \
-            or "rate-limited" in str(ei.value).lower()
+        assert "scope" in str(ei.value).lower() or "rate-limited" in str(ei.value).lower()
 
     def test_sends_correct_path(self, adapter):
         """PR comments go to the /issues/ endpoint, not /pulls/."""
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=201, body=_comment_payload(),
+                status=201,
+                body=_comment_payload(),
             )
             adapter.post_comment("octo/app", 42, "hi")
         call = m.call_args
@@ -256,8 +261,8 @@ class TestListComments:
 class TestNetworkErrors:
     def test_urlopen_failure_raises_githosterror(self, adapter):
         import urllib.error
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("dns")):
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns")):
             with pytest.raises(gh.GitHostError, match="unreachable"):
                 adapter.get_pr("o/r", 1)
 
@@ -310,10 +315,12 @@ class TestSplitSlug:
 class TestFactory:
     def test_github_cfg_returns_github_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MAESTRO_GH_FACTORY_TEST", "ghp_x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "MAESTRO_GH_FACTORY_TEST",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "MAESTRO_GH_FACTORY_TEST",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghgh.GitHubAdapter)
         assert adapter.host == "github.com"
@@ -321,20 +328,24 @@ class TestFactory:
 
     def test_missing_token_raises_githosterror(self, tmp_path, monkeypatch):
         monkeypatch.delenv("DEFINITELY_NOT_SET_ANYWHERE", raising=False)
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "github",
-            "token": "DEFINITELY_NOT_SET_ANYWHERE",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "github",
+                "token": "DEFINITELY_NOT_SET_ANYWHERE",
+            }
+        )
         with pytest.raises(gh.GitHostError, match="could not be resolved"):
             gh.get_adapter(cfg, maestro_root=tmp_path)
 
     def test_unknown_provider_raises(self, tmp_path, monkeypatch):
         """Providers outside the supported four raise clearly."""
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "made-up-forge",
-            "token": "T",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "made-up-forge",
+                "token": "T",
+            }
+        )
         with pytest.raises(gh.GitHostError, match="unknown provider"):
             gh.get_adapter(cfg, maestro_root=tmp_path)
 
@@ -394,7 +405,8 @@ class TestDeleteRepo:
     def test_404_raises(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=404, body={"message": "Not Found"},
+                status=404,
+                body={"message": "Not Found"},
             )
             with pytest.raises(gh.GitHostError):
                 adapter.delete_repo("o", "r")

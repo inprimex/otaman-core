@@ -43,6 +43,7 @@ def helper(x: int) -> int:
 # module_dotted_id
 # ---------------------------------------------------------------------------
 
+
 class TestModuleDottedId:
     def test_strips_src_prefix(self):
         rel = Path("src/otaman_core/_resolve.py")
@@ -60,6 +61,7 @@ class TestModuleDottedId:
 # ---------------------------------------------------------------------------
 # extract_entities
 # ---------------------------------------------------------------------------
+
 
 class TestExtractEntities:
     @pytest.fixture
@@ -113,6 +115,7 @@ class TestExtractEntities:
 # WikiEntity.to_markdown
 # ---------------------------------------------------------------------------
 
+
 class TestWikiEntityMarkdown:
     def _entity(self, **kwargs):
         defaults = dict(
@@ -133,8 +136,19 @@ class TestWikiEntityMarkdown:
     def test_frontmatter_has_required_fields(self):
         md = self._entity().to_markdown()
         fm_block = md.split("---\n")[1]
-        for field in ("id:", "title:", "kind:", "lens-tag:", "status:", "created-at:",
-                      "created-by:", "provenance:", "confidence:", "source-file:", "source-line:"):
+        for field in (
+            "id:",
+            "title:",
+            "kind:",
+            "lens-tag:",
+            "status:",
+            "created-at:",
+            "created-by:",
+            "provenance:",
+            "confidence:",
+            "source-file:",
+            "source-line:",
+        ):
             assert field in fm_block, f"missing {field!r}"
 
     def test_llm_managed_fencing_present(self):
@@ -173,6 +187,7 @@ class TestWikiEntityMarkdown:
 # ---------------------------------------------------------------------------
 # ingest() orchestrator
 # ---------------------------------------------------------------------------
+
 
 class TestIngest:
     def _write_py(self, tmp_path: Path, name: str, content: bytes) -> Path:
@@ -316,6 +331,7 @@ class TestParseFile:
 # WikiEntity.to_markdown with relations
 # ---------------------------------------------------------------------------
 
+
 class TestMarkdownWithRelations:
     def _entity(self, **kwargs) -> WikiEntity:
         defaults = dict(
@@ -403,8 +419,7 @@ class TestIngestGraphLinks:
 
     def test_links_key_in_stats(self, tmp_path):
         src_dir = self._setup_two_files(tmp_path)
-        stats = ingest([src_dir], tmp_path / "wiki", "myrepo",
-                       src_root=tmp_path / "src")
+        stats = ingest([src_dir], tmp_path / "wiki", "myrepo", src_root=tmp_path / "src")
         assert "links" in stats
         assert isinstance(stats["links"], int)
         assert stats["links"] >= 0
@@ -412,8 +427,7 @@ class TestIngestGraphLinks:
     def test_parent_child_links_generated(self, tmp_path):
         src_dir = self._setup_two_files(tmp_path)
         wiki_dir = tmp_path / "wiki"
-        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src",
-               overwrite=True)
+        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src", overwrite=True)
 
         # Alpha's entity file should have a "Contains" link for any method,
         # and Alpha itself should have a "Part of" link back to the module.
@@ -426,8 +440,7 @@ class TestIngestGraphLinks:
     def test_import_links_generated(self, tmp_path):
         src_dir = self._setup_two_files(tmp_path)
         wiki_dir = tmp_path / "wiki"
-        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src",
-               overwrite=True)
+        ingest([src_dir], wiki_dir, "myrepo", src_root=tmp_path / "src", overwrite=True)
 
         # child module imports parent — child's entity file should have an Imports link
         child_mod_file = wiki_dir / "myrepo.mypkg.child.md"

@@ -78,6 +78,7 @@ class GitHubAdapter:
         if params:
             # Keep ordering deterministic for tests.
             from urllib.parse import urlencode
+
             url = f"{url}?{urlencode(params)}"
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -134,7 +135,11 @@ class GitHubAdapter:
             raise GitHostError(f"GitHub returned non-JSON body: {e}") from e
 
     def _http_error(
-        self, method: str, path: str, status: int, body: bytes,
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: bytes,
     ) -> GitHostError:
         """Turn a non-success HTTP status into an actionable message.
 
@@ -174,7 +179,10 @@ class GitHubAdapter:
     # ----- pagination helper ---------------------------------------------
 
     def _paginate(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[Any]:
         """Follow ``Link: rel="next"`` headers until exhausted.
 
@@ -192,12 +200,12 @@ class GitHubAdapter:
 
         for _ in range(20):
             data, headers = self._get_json(
-                current_path, params=current_params,
+                current_path,
+                params=current_params,
             )
             if not isinstance(data, list):
                 raise GitHostError(
-                    f"GitHub {current_path} expected a JSON array, "
-                    f"got {type(data).__name__}"
+                    f"GitHub {current_path} expected a JSON array, got {type(data).__name__}"
                 )
             items.extend(data)
 
@@ -207,7 +215,7 @@ class GitHubAdapter:
             # The `next` link is a full URL; strip api_base and pass
             # it back as a path to keep params=None safe.
             if next_url.startswith(self.api_base):
-                current_path = next_url[len(self.api_base):]
+                current_path = next_url[len(self.api_base) :]
             else:
                 current_path = next_url
             current_params = None
@@ -228,13 +236,13 @@ class GitHubAdapter:
         owner, repo = _split_slug(slug)
         data, _ = self._get_json(f"/repos/{owner}/{repo}/pulls/{number}")
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitHub /pulls/{number} returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitHub /pulls/{number} returned {type(data).__name__}")
         return _to_pr(data)
 
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None:
         """Find the open PR whose source branch is ``branch``.
 
@@ -260,7 +268,10 @@ class GitHubAdapter:
         return _to_pr(data[0])
 
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment:
         """Post an issue-level comment on a PR.
 
@@ -276,13 +287,13 @@ class GitHubAdapter:
             body={"body": body},
         )
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitHub comment POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitHub comment POST returned {type(data).__name__}")
         return _to_comment(data)
 
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]:
         owner, repo = _split_slug(slug)
         raw_items = self._paginate(
@@ -310,9 +321,7 @@ class GitHubAdapter:
         }
         data = self._post_json(path, body=body)
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"GitHub repo POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"GitHub repo POST returned {type(data).__name__}")
         return _to_repo_info(data)
 
     def delete_repo(self, owner: str, name: str) -> None:

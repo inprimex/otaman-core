@@ -19,7 +19,7 @@ from pathlib import Path
 # Allow running without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from otaman_core.wiki import ingest, HAS_TREE_SITTER
+from otaman_core.wiki import HAS_TREE_SITTER, ingest
 
 
 def main() -> int:
@@ -28,10 +28,18 @@ def main() -> int:
         print("  pip install tree-sitter tree-sitter-python", file=sys.stderr)
         return 2
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("src_dir", nargs="?", default="src", help="Source directory to scan (default: src/)")
-    parser.add_argument("--repo", default=None, help="Repo name used as entity-id prefix (default: cwd basename)")
-    parser.add_argument("--wiki", default=".otaman/wiki", help="Output wiki directory (default: .otaman/wiki)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "src_dir", nargs="?", default="src", help="Source directory to scan (default: src/)"
+    )
+    parser.add_argument(
+        "--repo", default=None, help="Repo name used as entity-id prefix (default: cwd basename)"
+    )
+    parser.add_argument(
+        "--wiki", default=".otaman/wiki", help="Output wiki directory (default: .otaman/wiki)"
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing entity files")
     args = parser.parse_args()
 
@@ -55,7 +63,7 @@ def main() -> int:
         overwrite=args.overwrite,
     )
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  files processed : {stats['files']}")
     print(f"  entities written: {stats['entities']}")
     print(f"  entities skipped: {stats['skipped']} (already exist)")

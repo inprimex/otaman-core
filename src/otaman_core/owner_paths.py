@@ -90,16 +90,12 @@ def parse_platform_config(data: dict[str, Any]) -> PlatformConfig:
     """
     repos_raw = data.get("repos") or []
     if not isinstance(repos_raw, list):
-        raise OwnerPathsError(
-            f"repos: expected a list, got {type(repos_raw).__name__}"
-        )
+        raise OwnerPathsError(f"repos: expected a list, got {type(repos_raw).__name__}")
 
     repos: list[RepoConfig] = []
     for i, r in enumerate(repos_raw):
         if not isinstance(r, dict):
-            raise OwnerPathsError(
-                f"repos[{i}]: expected a mapping, got {type(r).__name__}"
-            )
+            raise OwnerPathsError(f"repos[{i}]: expected a mapping, got {type(r).__name__}")
         name = r.get("name")
         owner = r.get("owner")
         # Accept hyphenated and underscored forms; the schema canonical is hyphenated.
@@ -108,9 +104,7 @@ def parse_platform_config(data: dict[str, Any]) -> PlatformConfig:
             owner_paths_raw = r.get("owner_paths")
 
         if not isinstance(name, str) or not name:
-            raise OwnerPathsError(
-                f"repos[{i}]: 'name' is required and must be a non-empty string"
-            )
+            raise OwnerPathsError(f"repos[{i}]: 'name' is required and must be a non-empty string")
         if not isinstance(owner, str) or not owner:
             raise OwnerPathsError(
                 f"repos[{i}] {name!r}: 'owner' is required and must be a non-empty string"
@@ -203,10 +197,10 @@ def _match_path(path: str, pattern: str) -> bool:
     regex_parts = []
     i = 0
     while i < len(pat):
-        if pat[i:i + 3] == "**/":
+        if pat[i : i + 3] == "**/":
             regex_parts.append("(?:.*/)?")
             i += 3
-        elif pat[i:i + 2] == "**":
+        elif pat[i : i + 2] == "**":
             regex_parts.append(".*")
             i += 2
         elif pat[i] == "*":
@@ -281,7 +275,7 @@ def resolve_owners_for_paths(
 class OwnerPathsIssue:
     """One validation finding from :func:`validate_owner_paths`."""
 
-    severity: str          # "error" | "warning"
+    severity: str  # "error" | "warning"
     repo: str
     message: str
 
@@ -311,33 +305,37 @@ def validate_owner_paths(
         # Unknown-agent check
         for pattern, agent in repo.owner_paths.items():
             if agent not in known_agents:
-                issues.append(OwnerPathsIssue(
-                    severity="error",
-                    repo=repo.name,
-                    message=(
-                        f"owner-paths[{pattern!r}] references unknown agent "
-                        f"{agent!r}; declare it in platform.yaml agents: first"
-                    ),
-                ))
+                issues.append(
+                    OwnerPathsIssue(
+                        severity="error",
+                        repo=repo.name,
+                        message=(
+                            f"owner-paths[{pattern!r}] references unknown agent "
+                            f"{agent!r}; declare it in platform.yaml agents: first"
+                        ),
+                    )
+                )
 
         # Overlap check — equal-length patterns where one matches the other's
         # example path are ambiguous. We use the pattern itself as a probe.
         patterns = list(repo.owner_paths.keys())
         for i, p1 in enumerate(patterns):
-            for p2 in patterns[i + 1:]:
+            for p2 in patterns[i + 1 :]:
                 if len(p1) != len(p2):
                     continue
                 # Use a representative path: strip glob chars from p1.
                 probe = p1.replace("**", "x").replace("*", "x").replace("?", "x")
                 if _match_path(probe, p1) and _match_path(probe, p2):
-                    issues.append(OwnerPathsIssue(
-                        severity="warning",
-                        repo=repo.name,
-                        message=(
-                            f"owner-paths patterns {p1!r} and {p2!r} have equal "
-                            f"specificity and both match {probe!r}; first wins"
-                        ),
-                    ))
+                    issues.append(
+                        OwnerPathsIssue(
+                            severity="warning",
+                            repo=repo.name,
+                            message=(
+                                f"owner-paths patterns {p1!r} and {p2!r} have equal "
+                                f"specificity and both match {probe!r}; first wins"
+                            ),
+                        )
+                    )
     return issues
 
 

@@ -42,10 +42,7 @@ class TestLoadRoutingRules:
 
     def test_rules_load_as_dicts(self, tmp_path: Path):
         (tmp_path / "platform.yaml").write_text(
-            "bus:\n"
-            "  routing_rules:\n"
-            "    - when: { to: human }\n"
-            "      cc: [spec-agent]\n",
+            "bus:\n  routing_rules:\n    - when: { to: human }\n      cc: [spec-agent]\n",
             encoding="utf-8",
         )
         rules = load_routing_rules(tmp_path)
@@ -109,7 +106,10 @@ class TestEvaluateRoutingRules:
     def test_type_aware_match(self):
         rules = [{"when": {"type": "outcome-proposal"}, "cc": ["cofounder-agent"]}]
         assert evaluate_routing_rules(
-            rules, "human", "normal", msg_type="outcome-proposal",
+            rules,
+            "human",
+            "normal",
+            msg_type="outcome-proposal",
         ) == {"cofounder-agent"}
 
     def test_type_with_none_msg_type_skips(self):
@@ -120,11 +120,20 @@ class TestEvaluateRoutingRules:
     def test_type_list_or_semantics(self):
         rules = [{"when": {"type": ["outcome-proposal", "review-request"]}, "cc": ["x"]}]
         assert evaluate_routing_rules(
-            rules, "human", "normal", "outcome-proposal",
+            rules,
+            "human",
+            "normal",
+            "outcome-proposal",
         ) == {"x"}
-        assert evaluate_routing_rules(
-            rules, "human", "normal", "info",
-        ) == set()
+        assert (
+            evaluate_routing_rules(
+                rules,
+                "human",
+                "normal",
+                "info",
+            )
+            == set()
+        )
 
     def test_union_across_multiple_matching_rules(self):
         rules = [
@@ -133,7 +142,8 @@ class TestEvaluateRoutingRules:
         ]
         # Both fire on high-priority human messages.
         assert evaluate_routing_rules(rules, "human", "high") == {
-            "spec-agent", "cofounder-agent",
+            "spec-agent",
+            "cofounder-agent",
         }
 
     def test_unknown_when_key_skips_rule(self):
@@ -167,7 +177,10 @@ class TestComputeEffectiveCc:
 
     def test_explicit_only(self):
         assert compute_effective_cc(
-            "human", "normal", ["plugin-agent"], [],
+            "human",
+            "normal",
+            ["plugin-agent"],
+            [],
         ) == ["plugin-agent"]
 
     def test_routing_rule_only(self):
@@ -200,12 +213,19 @@ class TestComputeEffectiveCc:
     def test_type_aware_rule(self):
         rules = [{"when": {"type": "outcome-proposal"}, "cc": ["cofounder-agent"]}]
         assert compute_effective_cc(
-            "human", "normal", None, rules, msg_type="outcome-proposal",
+            "human",
+            "normal",
+            None,
+            rules,
+            msg_type="outcome-proposal",
         ) == ["cofounder-agent"]
 
     def test_non_string_explicit_cc_filtered(self):
         assert compute_effective_cc(
-            "human", "normal", ["good", 42, "", None], [],  # type: ignore[list-item]
+            "human",
+            "normal",
+            ["good", 42, "", None],
+            [],  # type: ignore[list-item]
         ) == ["good"]
 
 
@@ -215,13 +235,7 @@ class TestComputeEffectiveCc:
 
 class TestInjectXCc:
     def test_appends_after_last_field(self):
-        content = (
-            "---\n"
-            "id: 1\n"
-            "to: human\n"
-            "---\n"
-            "\n## Subject: test\n"
-        )
+        content = "---\nid: 1\nto: human\n---\n\n## Subject: test\n"
         out = inject_x_cc(content)
         assert "x-cc: true" in out
         # x-cc is the last frontmatter field, immediately before closing ---
@@ -268,15 +282,16 @@ class TestFanOutIntegration:
     def test_full_pipeline_with_explicit_and_rule_cc(self, tmp_path: Path):
         """Realistic flow: load rules → compute CC → inject x-cc."""
         (tmp_path / "platform.yaml").write_text(
-            "bus:\n"
-            "  routing_rules:\n"
-            "    - when: { to: human }\n"
-            "      cc: [spec-agent]\n",
+            "bus:\n  routing_rules:\n    - when: { to: human }\n      cc: [spec-agent]\n",
             encoding="utf-8",
         )
         rules = load_routing_rules(tmp_path)
         cc = compute_effective_cc(
-            "human", "high", ["plugin-agent"], rules, msg_type="info",
+            "human",
+            "high",
+            ["plugin-agent"],
+            rules,
+            msg_type="info",
         )
         assert set(cc) == {"plugin-agent", "spec-agent"}
 
@@ -286,7 +301,7 @@ class TestFanOutIntegration:
             "cc: [plugin-agent, spec-agent]\n"
             "---\n\n## Subject: hello\n"
         )
-        for recipient in cc:
+        for _recipient in cc:
             stamped = inject_x_cc(original)
             assert "x-cc: true" in stamped
             # Primary content preserved verbatim outside frontmatter
@@ -305,9 +320,20 @@ class TestFanOutIntegration:
         rules = load_routing_rules(tmp_path)
         # Fires
         assert compute_effective_cc(
-            "human", "normal", None, rules, msg_type="outcome-proposal",
+            "human",
+            "normal",
+            None,
+            rules,
+            msg_type="outcome-proposal",
         ) == ["cofounder-agent"]
         # Doesn't fire — different type
-        assert compute_effective_cc(
-            "human", "normal", None, rules, msg_type="info",
-        ) == []
+        assert (
+            compute_effective_cc(
+                "human",
+                "normal",
+                None,
+                rules,
+                msg_type="info",
+            )
+            == []
+        )

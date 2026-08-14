@@ -140,7 +140,7 @@ class OIDCValidator:
             return OIDCAuthResult(ok=False, error="missing Authorization header")
         if not bearer_header.startswith("Bearer "):
             return OIDCAuthResult(ok=False, error="Authorization is not Bearer")
-        token = bearer_header[len("Bearer "):].strip()
+        token = bearer_header[len("Bearer ") :].strip()
         if not token:
             return OIDCAuthResult(ok=False, error="empty bearer token")
 
@@ -294,7 +294,8 @@ def _default_jwks_fetcher(url: str) -> dict[str, Any]:
     Raises OIDCError on any network / parse failure.
     """
     req = urllib.request.Request(
-        url, method="GET",
+        url,
+        method="GET",
         headers={
             "Accept": "application/json",
             "User-Agent": "otaman-core-oidc/1.0",

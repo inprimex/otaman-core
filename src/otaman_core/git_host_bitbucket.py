@@ -106,7 +106,10 @@ class BitbucketAdapter:
             raise GitHostError(f"Bitbucket API unreachable: {e}") from e
 
     def _get_json(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> Any:
         status, body, _ = self._request("GET", path, params=params)
         if status != 200:
@@ -117,7 +120,11 @@ class BitbucketAdapter:
             raise GitHostError(f"Bitbucket returned non-JSON body: {e}") from e
 
     def _post_json(
-        self, path: str, *, body: dict[str, Any], expected_status: int = 201,
+        self,
+        path: str,
+        *,
+        body: dict[str, Any],
+        expected_status: int = 201,
     ) -> Any:
         status, resp_body, _ = self._request("POST", path, body=body)
         if status != expected_status:
@@ -128,7 +135,11 @@ class BitbucketAdapter:
             raise GitHostError(f"Bitbucket returned non-JSON body: {e}") from e
 
     def _http_error(
-        self, method: str, path: str, status: int, body: bytes,
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: bytes,
     ) -> GitHostError:
         hint = ""
         try:
@@ -163,7 +174,10 @@ class BitbucketAdapter:
     # ----- pagination -----------------------------------------------------
 
     def _paginate(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[Any]:
         """Bitbucket pagination: body has ``values`` + optional ``next`` URL."""
         merged = dict(params or {})
@@ -177,14 +191,12 @@ class BitbucketAdapter:
             data = self._get_json(current_path, params=current_params)
             if not isinstance(data, dict):
                 raise GitHostError(
-                    f"Bitbucket {current_path} expected a paged object, "
-                    f"got {type(data).__name__}"
+                    f"Bitbucket {current_path} expected a paged object, got {type(data).__name__}"
                 )
             values = data.get("values") or []
             if not isinstance(values, list):
                 raise GitHostError(
-                    f"Bitbucket {current_path} values was "
-                    f"{type(values).__name__}, expected list"
+                    f"Bitbucket {current_path} values was {type(values).__name__}, expected list"
                 )
             items.extend(values)
             next_url = data.get("next")
@@ -216,17 +228,15 @@ class BitbucketAdapter:
 
     def get_pr(self, slug: str, number: int) -> PullRequest:
         workspace, repo = self._split_slug(slug)
-        data = self._get_json(
-            f"/repositories/{workspace}/{repo}/pullrequests/{number}"
-        )
+        data = self._get_json(f"/repositories/{workspace}/{repo}/pullrequests/{number}")
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"Bitbucket /pullrequests/{number} returned {type(data).__name__}"
-            )
+            raise GitHostError(f"Bitbucket /pullrequests/{number} returned {type(data).__name__}")
         return _to_pr(data)
 
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None:
         workspace, repo = self._split_slug(slug)
         # Bitbucket uses a BBQL filter in `q=`. source.branch.name must
@@ -234,8 +244,7 @@ class BitbucketAdapter:
         q = f'state="OPEN" AND source.branch.name="{branch}"'
         data = self._get_json(
             f"/repositories/{workspace}/{repo}/pullrequests",
-            params={"q": q, "pagelen": 10,
-                    "sort": "-created_on"},
+            params={"q": q, "pagelen": 10, "sort": "-created_on"},
         )
         if not isinstance(data, dict):
             return None
@@ -245,7 +254,10 @@ class BitbucketAdapter:
         return _to_pr(values[0])
 
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment:
         if not body.strip():
             raise ValueError("comment body must be non-empty")
@@ -255,18 +267,16 @@ class BitbucketAdapter:
             body={"content": {"raw": body}},
         )
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"Bitbucket comment POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"Bitbucket comment POST returned {type(data).__name__}")
         return _to_comment(data)
 
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]:
         workspace, repo = self._split_slug(slug)
-        raw = self._paginate(
-            f"/repositories/{workspace}/{repo}/pullrequests/{pr_number}/comments"
-        )
+        raw = self._paginate(f"/repositories/{workspace}/{repo}/pullrequests/{pr_number}/comments")
         return [_to_comment(item) for item in raw]
 
     # ----- repo lifecycle -------------------------------------------------
@@ -287,9 +297,7 @@ class BitbucketAdapter:
         if not name.strip():
             raise ValueError("repo name must be non-empty")
         if not org or not org.strip():
-            raise ValueError(
-                "Bitbucket requires --org (workspace) when creating a repo"
-            )
+            raise ValueError("Bitbucket requires --org (workspace) when creating a repo")
         workspace = org.strip()
         slug = name.lower()  # Bitbucket repo slugs are lowercase
         body: dict[str, Any] = {
@@ -304,9 +312,7 @@ class BitbucketAdapter:
             expected_status=200,  # Bitbucket returns 200 on create, not 201
         )
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"Bitbucket repo POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"Bitbucket repo POST returned {type(data).__name__}")
         return _to_repo_info(data)
 
     def delete_repo(self, owner: str, name: str) -> None:
@@ -328,10 +334,10 @@ def _to_pr(raw: dict[str, Any]) -> PullRequest:
     author = raw.get("author") or {}
     # Source/destination nest branch info one layer deep.
     source = raw.get("source") or {}
-    source_branch = (source.get("branch") or {})
-    source_commit = (source.get("commit") or {})
+    source_branch = source.get("branch") or {}
+    source_commit = source.get("commit") or {}
     destination = raw.get("destination") or {}
-    dest_branch = (destination.get("branch") or {})
+    dest_branch = destination.get("branch") or {}
     state_raw = str(raw.get("state") or "").upper()
     state_map = {
         "OPEN": "open",
@@ -371,7 +377,7 @@ def _to_repo_info(raw: dict[str, Any]) -> RepoInfo:
     links = raw.get("links") or {}
     html = (links.get("html") or {}).get("href", "")
     # Bitbucket lists clone URLs as ``[{name: "https", href: ...}, {name: "ssh", ...}]``
-    clones = (links.get("clone") or [])
+    clones = links.get("clone") or []
     clone_https = ""
     clone_ssh = ""
     for entry in clones:

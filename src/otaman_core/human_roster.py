@@ -58,9 +58,7 @@ def _coerce_entry(raw: Any, index: int) -> HumanRosterEntry:
     when ``name:`` itself is missing) so users can find the row quickly.
     """
     if not isinstance(raw, dict):
-        raise ConfigError(
-            f"human-roster[{index}]: expected a mapping, got {type(raw).__name__}"
-        )
+        raise ConfigError(f"human-roster[{index}]: expected a mapping, got {type(raw).__name__}")
 
     name = raw.get("name")
     email = raw.get("email")
@@ -83,13 +81,10 @@ def _coerce_entry(raw: Any, index: int) -> HumanRosterEntry:
         )
     if not isinstance(roles_raw, list):
         raise ConfigError(
-            f"human-roster entry {label}: 'roles' must be a list, got "
-            f"{type(roles_raw).__name__}"
+            f"human-roster entry {label}: 'roles' must be a list, got {type(roles_raw).__name__}"
         )
     if len(roles_raw) == 0:
-        raise ConfigError(
-            f"human-roster entry {label}: 'roles' must be a non-empty list"
-        )
+        raise ConfigError(f"human-roster entry {label}: 'roles' must be a non-empty list")
     if not all(isinstance(r, str) and r for r in roles_raw):
         raise ConfigError(
             f"human-roster entry {label}: every value in 'roles' must be a non-empty string"
@@ -127,9 +122,7 @@ def parse_human_roster(block: Any) -> list[HumanRosterEntry]:
     if block is None:
         return []
     if not isinstance(block, list):
-        raise ConfigError(
-            f"human-roster: expected a list of entries, got {type(block).__name__}"
-        )
+        raise ConfigError(f"human-roster: expected a list of entries, got {type(block).__name__}")
     return [_coerce_entry(entry, i) for i, entry in enumerate(block)]
 
 

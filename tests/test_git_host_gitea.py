@@ -122,7 +122,8 @@ class TestGetPr:
     def test_404_raises(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=404, body={"message": "Not Found"},
+                status=404,
+                body={"message": "Not Found"},
             )
             with pytest.raises(gh.GitHostError):
                 adapter.get_pr("o/r", 7)
@@ -233,7 +234,8 @@ class TestDeleteRepo:
     def test_404_raises(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=404, body={"message": "Not Found"},
+                status=404,
+                body={"message": "Not Found"},
             )
             with pytest.raises(gh.GitHostError):
                 adapter.delete_repo("o", "r")

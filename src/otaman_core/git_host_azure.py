@@ -70,7 +70,7 @@ class AzureDevOpsAdapter:
 
     @staticmethod
     def _build_auth(token: str) -> str:
-        raw = f":{token}".encode("utf-8")
+        raw = f":{token}".encode()
         return "Basic " + base64.b64encode(raw).decode("ascii")
 
     # ----- slug + URL -----------------------------------------------------
@@ -87,10 +87,7 @@ class AzureDevOpsAdapter:
     def _project_base(self, slug: str) -> str:
         """URL prefix for a project-scoped API call."""
         org, project, _ = self._split_slug(slug)
-        return (
-            f"https://{self.host}/{urllib.parse.quote(org)}"
-            f"/{urllib.parse.quote(project)}/_apis"
-        )
+        return f"https://{self.host}/{urllib.parse.quote(org)}/{urllib.parse.quote(project)}/_apis"
 
     # ----- low-level HTTP -------------------------------------------------
 
@@ -129,7 +126,10 @@ class AzureDevOpsAdapter:
             raise GitHostError(f"Azure DevOps API unreachable: {e}") from e
 
     def _get_json(
-        self, url: str, *, params: dict[str, Any] | None = None,
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> tuple[Any, dict[str, str]]:
         status, body, headers = self._request("GET", url, params=params)
         if status != 200:
@@ -140,7 +140,11 @@ class AzureDevOpsAdapter:
             raise GitHostError(f"Azure DevOps returned non-JSON body: {e}") from e
 
     def _post_json(
-        self, url: str, *, body: dict[str, Any], expected_status: int = 200,
+        self,
+        url: str,
+        *,
+        body: dict[str, Any],
+        expected_status: int = 200,
     ) -> Any:
         # Azure DevOps returns 200 OK on thread creation (not 201).
         status, resp_body, _ = self._request("POST", url, body=body)
@@ -152,7 +156,11 @@ class AzureDevOpsAdapter:
             raise GitHostError(f"Azure DevOps returned non-JSON body: {e}") from e
 
     def _http_error(
-        self, method: str, url: str, status: int, body: bytes,
+        self,
+        method: str,
+        url: str,
+        status: int,
+        body: bytes,
     ) -> GitHostError:
         hint = ""
         try:
@@ -168,7 +176,7 @@ class AzureDevOpsAdapter:
             # Azure DevOps famously returns 203 Non-Authoritative (with
             # an HTML sign-in page) when the PAT is invalid/expired —
             # same user-facing meaning as 401 elsewhere.
-            hint += " (token invalid / expired — regenerate a Personal Access Token in User settings → Personal access tokens)"
+            hint += " (token invalid / expired — regenerate a Personal Access Token in User settings → Personal access tokens)"  # noqa: E501
         elif status == 403:
             hint += (
                 " (token missing scope — `Code (Read)` for reads, "
@@ -190,7 +198,10 @@ class AzureDevOpsAdapter:
     # ----- pagination -----------------------------------------------------
 
     def _paginate(
-        self, url: str, *, params: dict[str, Any] | None = None,
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[Any]:
         """Follow ``x-ms-continuationtoken`` headers until exhausted."""
         merged = dict(params or {})
@@ -203,17 +214,13 @@ class AzureDevOpsAdapter:
             data, headers = self._get_json(url, params=current_params)
             if not isinstance(data, dict):
                 raise GitHostError(
-                    f"Azure DevOps {url} expected paged object, "
-                    f"got {type(data).__name__}"
+                    f"Azure DevOps {url} expected paged object, got {type(data).__name__}"
                 )
             values = data.get("value") or []
             if not isinstance(values, list):
-                raise GitHostError(
-                    f"Azure DevOps {url} value was {type(values).__name__}"
-                )
+                raise GitHostError(f"Azure DevOps {url} value was {type(values).__name__}")
             items.extend(values)
-            cont = headers.get("x-ms-continuationtoken") or \
-                headers.get("X-MS-ContinuationToken")
+            cont = headers.get("x-ms-continuationtoken") or headers.get("X-MS-ContinuationToken")
             if not cont:
                 break
             current_params = dict(merged)
@@ -228,7 +235,8 @@ class AzureDevOpsAdapter:
         base = self._project_base(slug)
         url = f"{base}/git/repositories/{urllib.parse.quote(repo)}/pullrequests"
         raw = self._paginate(
-            url, params={"searchCriteria.status": "active"},
+            url,
+            params={"searchCriteria.status": "active"},
         )
         return [_to_pr(item, self.host) for item in raw]
 
@@ -244,7 +252,9 @@ class AzureDevOpsAdapter:
         return _to_pr(data, self.host)
 
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None:
         _, _, repo = self._split_slug(slug)
         base = self._project_base(slug)
@@ -265,7 +275,10 @@ class AzureDevOpsAdapter:
         return _to_pr(values[0], self.host)
 
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment:
         """Create a thread with a single comment — Azure's equivalent
         of an issue-level PR comment."""
@@ -273,36 +286,29 @@ class AzureDevOpsAdapter:
             raise ValueError("comment body must be non-empty")
         _, _, repo = self._split_slug(slug)
         base = self._project_base(slug)
-        url = (
-            f"{base}/git/repositories/{urllib.parse.quote(repo)}"
-            f"/pullRequests/{pr_number}/threads"
-        )
+        url = f"{base}/git/repositories/{urllib.parse.quote(repo)}/pullRequests/{pr_number}/threads"
         data = self._post_json(
             url,
             body={
-                "comments": [
-                    {"parentCommentId": 0, "content": body, "commentType": 1}
-                ],
+                "comments": [{"parentCommentId": 0, "content": body, "commentType": 1}],
                 # 1 = active; we don't auto-resolve on post.
                 "status": 1,
             },
         )
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"Azure DevOps thread POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"Azure DevOps thread POST returned {type(data).__name__}")
         # Flatten to our Comment shape — take the first (and only)
         # comment from the created thread.
         comments = data.get("comments") or []
         if not comments:
-            raise GitHostError(
-                "Azure DevOps returned an empty thread; comment may not have posted"
-            )
+            raise GitHostError("Azure DevOps returned an empty thread; comment may not have posted")
         first = comments[0]
         return _to_comment(first, slug, pr_number, data.get("id"), self.host)
 
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]:
         """Flatten every comment from every thread on the PR.
 
@@ -312,10 +318,7 @@ class AzureDevOpsAdapter:
         """
         _, _, repo = self._split_slug(slug)
         base = self._project_base(slug)
-        url = (
-            f"{base}/git/repositories/{urllib.parse.quote(repo)}"
-            f"/pullRequests/{pr_number}/threads"
-        )
+        url = f"{base}/git/repositories/{urllib.parse.quote(repo)}/pullRequests/{pr_number}/threads"
         data, _ = self._get_json(url)
         if not isinstance(data, dict):
             return []
@@ -323,7 +326,7 @@ class AzureDevOpsAdapter:
         out: list[Comment] = []
         for thread in threads:
             thread_id = thread.get("id")
-            for c in (thread.get("comments") or []):
+            for c in thread.get("comments") or []:
                 out.append(_to_comment(c, slug, pr_number, thread_id, self.host))
         return out
 
@@ -348,9 +351,7 @@ class AzureDevOpsAdapter:
         if not name.strip():
             raise ValueError("repo name must be non-empty")
         if not org or "/" not in org:
-            raise ValueError(
-                "Azure DevOps requires --org in 'organization/project' form"
-            )
+            raise ValueError("Azure DevOps requires --org in 'organization/project' form")
         org_name, project = org.split("/", 1)
         project_id = self._resolve_project_id(org_name, project)
         url = (
@@ -363,9 +364,7 @@ class AzureDevOpsAdapter:
         }
         data = self._post_json(url, body=body, expected_status=201)
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"Azure DevOps repo POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"Azure DevOps repo POST returned {type(data).__name__}")
         return _to_repo_info(data, self.host, org_name, project, private)
 
     def delete_repo(self, owner: str, name: str) -> None:
@@ -397,9 +396,7 @@ class AzureDevOpsAdapter:
         )
         data, _ = self._get_json(url)
         if not isinstance(data, dict) or "id" not in data:
-            raise GitHostError(
-                f"Azure DevOps project {org_name}/{project} not found"
-            )
+            raise GitHostError(f"Azure DevOps project {org_name}/{project} not found")
         return str(data["id"])
 
     def _resolve_repo_id(self, org_name: str, project: str, name: str) -> str:
@@ -410,9 +407,7 @@ class AzureDevOpsAdapter:
         )
         data, _ = self._get_json(url)
         if not isinstance(data, dict) or "id" not in data:
-            raise GitHostError(
-                f"Azure DevOps repo {org_name}/{project}/{name} not found"
-            )
+            raise GitHostError(f"Azure DevOps repo {org_name}/{project}/{name} not found")
         return str(data["id"])
 
 
@@ -451,7 +446,7 @@ def _to_pr(raw: dict[str, Any], host: str) -> PullRequest:
         # Parse: https://dev.azure.com/<org>/_apis/git/repositories/<id>
         org = ""
         if org_url.startswith("https://"):
-            tail = org_url[len("https://"):]
+            tail = org_url[len("https://") :]
             segs = tail.split("/")
             if len(segs) >= 2:
                 org = segs[1]
@@ -502,8 +497,11 @@ def _to_repo_info(
 
 
 def _to_comment(
-    raw: dict[str, Any], slug: str, pr_number: int,
-    thread_id: Any, host: str,
+    raw: dict[str, Any],
+    slug: str,
+    pr_number: int,
+    thread_id: Any,
+    host: str,
 ) -> Comment:
     author = raw.get("author") or {}
     comment_id = int(raw.get("id") or 0)

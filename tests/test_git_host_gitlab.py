@@ -77,8 +77,7 @@ class TestProjectId:
         assert ghgl.GitLabAdapter._project_id("group/project") == "group%2Fproject"
 
     def test_nested_subgroup(self):
-        assert ghgl.GitLabAdapter._project_id("group/sub/project") \
-            == "group%2Fsub%2Fproject"
+        assert ghgl.GitLabAdapter._project_id("group/sub/project") == "group%2Fsub%2Fproject"
 
     def test_invalid(self):
         with pytest.raises(ValueError, match="slug"):
@@ -90,7 +89,7 @@ class TestGetPr:
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(status=200, body=_mr_payload())
             pr = adapter.get_pr("group/project", 42)
-        assert pr.number == 42   # iid, not id
+        assert pr.number == 42  # iid, not id
         assert pr.state == "open"  # normalized from "opened"
         assert pr.author == "tanuki"
         assert pr.head_ref == "feature/widget"
@@ -108,7 +107,8 @@ class TestGetPr:
     def test_merged_state(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_mr_payload(state="merged"),
+                status=200,
+                body=_mr_payload(state="merged"),
             )
             pr = adapter.get_pr("g/p", 1)
         assert pr.state == "merged"
@@ -116,22 +116,22 @@ class TestGetPr:
     def test_401_surfaces_token_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=401, body={"message": "401 Unauthorized"},
+                status=401,
+                body={"message": "401 Unauthorized"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.get_pr("g/p", 1)
-        assert "expired" in str(ei.value).lower() \
-            or "access tokens" in str(ei.value).lower()
+        assert "expired" in str(ei.value).lower() or "access tokens" in str(ei.value).lower()
 
     def test_404_surfaces_project_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=404, body={"message": "404 Project Not Found"},
+                status=404,
+                body={"message": "404 Project Not Found"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.get_pr("g/p", 1)
-        assert "project slug" in str(ei.value).lower() \
-            or "token" in str(ei.value).lower()
+        assert "project slug" in str(ei.value).lower() or "token" in str(ei.value).lower()
 
 
 class TestListOpenPrs:
@@ -147,9 +147,10 @@ class TestListOpenPrs:
     def test_follows_link_next(self, adapter):
         responses = [
             _mock_response(
-                status=200, body=[_mr_payload(iid=1)],
+                status=200,
+                body=[_mr_payload(iid=1)],
                 headers={
-                    "Link": '<https://gitlab.com/api/v4/projects/g%2Fp/merge_requests?page=2>; rel="next"',
+                    "Link": '<https://gitlab.com/api/v4/projects/g%2Fp/merge_requests?page=2>; rel="next"',  # noqa: E501
                 },
             ),
             _mock_response(status=200, body=[_mr_payload(iid=2)]),
@@ -172,7 +173,8 @@ class TestGetPrForBranch:
     def test_found(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=[_mr_payload(iid=7)],
+                status=200,
+                body=[_mr_payload(iid=7)],
             )
             pr = adapter.get_pr_for_branch("g/p", "feature/xyz")
         assert pr is not None and pr.number == 7
@@ -217,7 +219,8 @@ class TestPostComment:
     def test_403_forbidden_surfaces_scope_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=403, body={"message": "403 Forbidden"},
+                status=403,
+                body={"message": "403 Forbidden"},
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.post_comment("g/p", 1, "hi")
@@ -229,8 +232,7 @@ class TestListComments:
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
                 status=200,
-                body=[_note_payload(id=1, body="first"),
-                      _note_payload(id=2, body="second")],
+                body=[_note_payload(id=1, body="first"), _note_payload(id=2, body="second")],
             )
             comments = adapter.list_comments("g/p", 1)
         assert [c.id for c in comments] == [1, 2]
@@ -239,8 +241,8 @@ class TestListComments:
 class TestNetworkErrors:
     def test_urlopen_failure(self, adapter):
         import urllib.error
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("dns")):
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns")):
             with pytest.raises(gh.GitHostError, match="unreachable"):
                 adapter.get_pr("g/p", 1)
 
@@ -254,21 +256,25 @@ class TestNetworkErrors:
 class TestFactory:
     def test_gitlab_cfg_returns_gitlab_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MAESTRO_GL_FACTORY_TEST", "glpat-x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "gitlab",
-            "token": "MAESTRO_GL_FACTORY_TEST",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "gitlab",
+                "token": "MAESTRO_GL_FACTORY_TEST",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghgl.GitLabAdapter)
         assert adapter.host == "gitlab.com"
 
     def test_self_hosted_host_flows_through(self, tmp_path, monkeypatch):
         monkeypatch.setenv("T", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "gitlab",
-            "host": "gitlab.mycorp.io",
-            "token": "T",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "gitlab",
+                "host": "gitlab.mycorp.io",
+                "token": "T",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert adapter.host == "gitlab.mycorp.io"
         assert adapter.api_base == "https://gitlab.mycorp.io/api/v4"

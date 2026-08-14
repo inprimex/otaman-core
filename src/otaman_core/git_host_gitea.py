@@ -51,9 +51,7 @@ class GiteaAdapter:
         user_agent: str = _DEFAULT_UA,
     ):
         if not host:
-            raise ValueError(
-                "Gitea/Forgejo adapter requires explicit host (no SaaS default)"
-            )
+            raise ValueError("Gitea/Forgejo adapter requires explicit host (no SaaS default)")
         self.host = host
         self.token = token
         # ``provider`` lets a Forgejo deployment self-identify in logs / messages
@@ -102,7 +100,10 @@ class GiteaAdapter:
             raise GitHostError(f"Gitea/Forgejo API unreachable: {e}") from e
 
     def _get_json(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> tuple[Any, dict[str, str]]:
         status, body, headers = self._request("GET", path, params=params)
         if status != 200:
@@ -113,7 +114,11 @@ class GiteaAdapter:
             raise GitHostError(f"Gitea/Forgejo returned non-JSON body: {e}") from e
 
     def _post_json(
-        self, path: str, *, body: dict[str, Any], expected_status: int = 201,
+        self,
+        path: str,
+        *,
+        body: dict[str, Any],
+        expected_status: int = 201,
     ) -> Any:
         status, resp_body, _ = self._request("POST", path, body=body)
         if status != expected_status:
@@ -124,7 +129,11 @@ class GiteaAdapter:
             raise GitHostError(f"Gitea/Forgejo returned non-JSON body: {e}") from e
 
     def _http_error(
-        self, method: str, path: str, status: int, body: bytes,
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: bytes,
     ) -> GitHostError:
         hint = ""
         try:
@@ -139,15 +148,14 @@ class GiteaAdapter:
             pass
 
         if status == 401:
-            hint += " (token invalid / expired — regenerate in Gitea/Forgejo Settings → Applications)"
-        elif status == 403:
             hint += (
-                " (token missing scope — write:repository or write:issue depending on the operation)"
+                " (token invalid / expired — regenerate in Gitea/Forgejo Settings → Applications)"
             )
+        elif status == 403:
+            hint += " (token missing scope — write:repository or write:issue depending on the operation)"  # noqa: E501
         elif status == 404:
             hint += (
-                " (repo/PR not found OR token can't see it; "
-                "check the slug and token's repo access)"
+                " (repo/PR not found OR token can't see it; check the slug and token's repo access)"
             )
 
         return GitHostError(
@@ -158,7 +166,10 @@ class GiteaAdapter:
     # ----- pagination -----------------------------------------------------
 
     def _paginate(
-        self, path: str, *, params: dict[str, Any] | None = None,
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[Any]:
         """Gitea/Forgejo use Link headers like GitHub for pagination."""
         merged = dict(params or {})
@@ -177,13 +188,11 @@ class GiteaAdapter:
                 )
             items.extend(data)
 
-            next_url = _parse_link_next(
-                headers.get("Link") or headers.get("link") or ""
-            )
+            next_url = _parse_link_next(headers.get("Link") or headers.get("link") or "")
             if not next_url:
                 break
             if next_url.startswith(self.api_base):
-                current_path = next_url[len(self.api_base):]
+                current_path = next_url[len(self.api_base) :]
             else:
                 current_path = next_url
             current_params = None
@@ -219,7 +228,9 @@ class GiteaAdapter:
         return _to_pr(data)
 
     def get_pr_for_branch(
-        self, slug: str, branch: str,
+        self,
+        slug: str,
+        branch: str,
     ) -> PullRequest | None:
         """Gitea's /pulls doesn't filter by source branch; paginate + match.
 
@@ -239,7 +250,10 @@ class GiteaAdapter:
         return None
 
     def post_comment(
-        self, slug: str, pr_number: int, body: str,
+        self,
+        slug: str,
+        pr_number: int,
+        body: str,
     ) -> Comment:
         """Post an issue-level comment on a PR.
 
@@ -259,7 +273,9 @@ class GiteaAdapter:
         return _to_comment(data)
 
     def list_comments(
-        self, slug: str, pr_number: int,
+        self,
+        slug: str,
+        pr_number: int,
     ) -> list[Comment]:
         owner, repo = self._split_slug(slug)
         raw = self._paginate(
@@ -288,9 +304,7 @@ class GiteaAdapter:
         }
         data = self._post_json(path, body=body)
         if not isinstance(data, dict):
-            raise GitHostError(
-                f"{self.provider.title()} repo POST returned {type(data).__name__}"
-            )
+            raise GitHostError(f"{self.provider.title()} repo POST returned {type(data).__name__}")
         return _to_repo_info(data)
 
     def delete_repo(self, owner: str, name: str) -> None:

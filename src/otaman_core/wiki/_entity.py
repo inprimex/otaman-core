@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import yaml
@@ -27,7 +27,7 @@ class WikiEntity:
     lens_tag: str = "c4"
     status: str = "draft"
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
     created_by: str = "otaman-core/wiki-ingest"
     provenance: str = "static-analysis"

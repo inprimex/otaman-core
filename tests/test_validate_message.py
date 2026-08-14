@@ -20,6 +20,7 @@ def _write_msg(tmp_path, frontmatter, body="## Subject: test\n"):
     p.write_text(f"---\n{frontmatter}\n---\n\n{body}", encoding="utf-8")
     return p
 
+
 def _valid_fm(**overrides):
     fields = {
         "id": "20260528T120000-abc",
@@ -36,6 +37,7 @@ def _valid_fm(**overrides):
 def _errors(tmp_path, frontmatter, body="## Subject: test\n"):
     errors, _ = validate_message(_write_msg(tmp_path, frontmatter, body))
     return errors
+
 
 def _warnings(tmp_path, frontmatter, body="## Subject: test\n"):
     _, warnings = validate_message(_write_msg(tmp_path, frontmatter, body))
@@ -68,12 +70,16 @@ class TestRequiredFields:
         )
 
     def test_unknown_priority(self, tmp_path):
-        assert any("priority" in e.lower() for e in _errors(tmp_path, _valid_fm(priority="critical")))
+        assert any(
+            "priority" in e.lower() for e in _errors(tmp_path, _valid_fm(priority="critical"))
+        )
 
 
 class TestReplyTo:
     def test_valid_agent(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(**{"reply-to": "runner-agent"})))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(**{"reply-to": "runner-agent"}))
+        )
         assert errors == []
 
     def test_valid_human(self, tmp_path):
@@ -85,17 +91,23 @@ class TestReplyTo:
         assert errors == []
 
     def test_invalid_bare_name(self, tmp_path):
-        assert any("reply-to" in e for e in _errors(tmp_path, _valid_fm(**{"reply-to": "Romans Laptop"})))
+        assert any(
+            "reply-to" in e for e in _errors(tmp_path, _valid_fm(**{"reply-to": "Romans Laptop"}))
+        )
 
     def test_invalid_email(self, tmp_path):
-        assert any("reply-to" in e for e in _errors(tmp_path, _valid_fm(**{"reply-to": "foo@bar.com"})))
+        assert any(
+            "reply-to" in e for e in _errors(tmp_path, _valid_fm(**{"reply-to": "foo@bar.com"}))
+        )
 
 
 class TestToField:
     KNOWN = {"core-agent", "cli-agent", "bridge-agent"}
 
     def test_to_all_broadcast(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="contract-change")))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="contract-change"))
+        )
         assert errors == []
 
     def test_to_human(self, tmp_path):
@@ -107,7 +119,9 @@ class TestToField:
         assert errors == []
 
     def test_comma_list_known(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="core-agent, cli-agent")), self.KNOWN)
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="core-agent, cli-agent")), self.KNOWN
+        )
         assert errors == []
 
     def test_comma_list_unknown_flagged(self, tmp_path):
@@ -123,18 +137,22 @@ class TestToField:
 
 class TestBroadcastWhitelist:
     def test_contract_change_all_ok(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="contract-change")))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="contract-change"))
+        )
         assert errors == []
 
     def test_emergency_halt_all_ok(self, tmp_path):
-        """emergency-halt is privileged (F012) — from: human required to isolate the broadcast check."""
+        """emergency-halt is privileged (F012) — from: human required to isolate the broadcast check."""  # noqa: E501
         errors, _ = validate_message(
             _write_msg(tmp_path, _valid_fm(to="all", type="emergency-halt", **{"from": "human"}))
         )
         assert errors == []
 
     def test_agent_registry_change_all_ok(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="agent-registry-change")))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="agent-registry-change"))
+        )
         assert errors == []
 
     def test_info_all_invalid(self, tmp_path):
@@ -142,11 +160,15 @@ class TestBroadcastWhitelist:
         assert any("all" in e for e in errors)
 
     def test_task_assignment_all_invalid(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="task-assignment")))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="task-assignment"))
+        )
         assert any("all" in e for e in errors)
 
     def test_task_complete_all_invalid(self, tmp_path):
-        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="task-complete")))
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="task-complete"))
+        )
         assert any("all" in e for e in errors)
 
     def test_targeted_info_ok(self, tmp_path):
@@ -180,7 +202,10 @@ class TestExpectsResponse:
 
     def test_broadcast_with_expects_response_true_is_warning(self, tmp_path):
         _, warnings = validate_message(
-            _write_msg(tmp_path, _valid_fm(to="all", type="contract-change", **{"expects-response": "true"}))
+            _write_msg(
+                tmp_path,
+                _valid_fm(to="all", type="contract-change", **{"expects-response": "true"}),
+            )
         )
         assert any("broadcast" in w and "expects-response" in w for w in warnings)
 
@@ -210,15 +235,11 @@ class TestResponseEffort:
         assert errors == []
 
     def test_invalid_value_is_error(self, tmp_path):
-        errors, _ = validate_message(
-            _write_msg(tmp_path, _valid_fm(**{"response-effort": "HUGE"}))
-        )
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(**{"response-effort": "HUGE"})))
         assert any("response-effort" in e for e in errors)
 
     def test_lowercase_invalid(self, tmp_path):
-        errors, _ = validate_message(
-            _write_msg(tmp_path, _valid_fm(**{"response-effort": "m"}))
-        )
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(**{"response-effort": "m"})))
         assert any("response-effort" in e for e in errors)
 
 
@@ -260,11 +281,13 @@ class TestResponseDeadline:
 
 class TestBackwardsCompatibility:
     def test_all_three_fields_valid(self, tmp_path):
-        fm = _valid_fm(**{
-            "expects-response": "true",
-            "response-effort": "M",
-            "response-deadline": "2026-06-04T18:00:00Z",
-        })
+        fm = _valid_fm(
+            **{
+                "expects-response": "true",
+                "response-effort": "M",
+                "response-deadline": "2026-06-04T18:00:00Z",
+            }
+        )
         errors, warnings = validate_message(_write_msg(tmp_path, fm))
         assert errors == []
         assert warnings == []
@@ -356,25 +379,30 @@ class TestNewMessageTypes:
         for t in self.NEW_TYPES:
             # human-decision is privileged (F012) — needs from: human, unlike the rest.
             from_field = "human" if t in PRIVILEGED_TYPES else "core-agent"
-            errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(type=t, **{"from": from_field})))
+            errors, _ = validate_message(
+                _write_msg(tmp_path, _valid_fm(type=t, **{"from": from_field}))
+            )
             assert errors == [], f"Expected {t!r} to validate, got errors: {errors}"
 
 
 class TestMarkerAgentField:
     def test_agent_field_parsed(self, tmp_path):
         from otaman_core._resolve import parse_marker_fields
+
         m = tmp_path / ".otaman"
         m.write_text("otaman_root: ../meta\nagent: core-agent\n")
         assert parse_marker_fields(m)["agent"] == "core-agent"
 
     def test_agent_field_absent_ok(self, tmp_path):
         from otaman_core._resolve import parse_marker_fields
+
         m = tmp_path / ".otaman"
         m.write_text("otaman_root: ../meta\n")
         assert "agent" not in parse_marker_fields(m)
 
     def test_agent_does_not_affect_root(self, tmp_path):
         from otaman_core._resolve import parse_marker_fields
+
         m = tmp_path / ".otaman"
         m.write_text("otaman_root: ../meta\nagent: bridge-agent\n")
         f = parse_marker_fields(m)
@@ -383,6 +411,7 @@ class TestMarkerAgentField:
 
     def test_unknown_fields_ignored(self, tmp_path):
         from otaman_core._resolve import parse_marker_fields
+
         m = tmp_path / ".otaman"
         m.write_text("otaman_root: ../meta\nfuture_field: value\n")
         assert "future_field" not in parse_marker_fields(m)

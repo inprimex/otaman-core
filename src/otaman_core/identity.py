@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from otaman_core._resolve import find_maestro_root, read_agent
@@ -93,7 +93,7 @@ def _append_audit_entry(result: EnforcementIdentity) -> None:
     try:
         audit_path.parent.mkdir(parents=True, exist_ok=True)
         entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "agent": result.agent,
             "source": result.source,
             "cwd": result.cwd,

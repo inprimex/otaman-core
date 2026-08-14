@@ -80,8 +80,7 @@ def _mock_response(*, status=200, body=b"", headers=None):
 
 class TestSplitSlug:
     def test_three_segments(self):
-        assert ghaz.AzureDevOpsAdapter._split_slug("org/project/repo") \
-            == ("org", "project", "repo")
+        assert ghaz.AzureDevOpsAdapter._split_slug("org/project/repo") == ("org", "project", "repo")
 
     @pytest.mark.parametrize("bad", ["", "org", "org/project", "a/b/c/d"])
     def test_invalid(self, bad):
@@ -93,9 +92,9 @@ class TestAuth:
     def test_basic_auth_header(self):
         adapter = ghaz.AzureDevOpsAdapter(token="pat-abc")
         assert adapter._auth_header.startswith("Basic ")
-        decoded = base64.b64decode(
-            adapter._auth_header[len("Basic "):].encode("ascii")
-        ).decode("utf-8")
+        decoded = base64.b64decode(adapter._auth_header[len("Basic ") :].encode("ascii")).decode(
+            "utf-8"
+        )
         # Azure expects empty user + PAT: ":pat"
         assert decoded == ":pat-abc"
 
@@ -117,7 +116,8 @@ class TestGetPr:
     def test_completed_state(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_pr_payload(status="completed"),
+                status=200,
+                body=_pr_payload(status="completed"),
             )
             pr = adapter.get_pr("o/p/r", 1)
         assert pr.state == "merged"
@@ -125,7 +125,8 @@ class TestGetPr:
     def test_abandoned_state(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_pr_payload(status="abandoned"),
+                status=200,
+                body=_pr_payload(status="abandoned"),
             )
             pr = adapter.get_pr("o/p/r", 1)
         assert pr.state == "closed"
@@ -133,7 +134,8 @@ class TestGetPr:
     def test_draft_flag(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_pr_payload(isDraft=True),
+                status=200,
+                body=_pr_payload(isDraft=True),
             )
             pr = adapter.get_pr("o/p/r", 1)
         assert pr.draft is True
@@ -148,8 +150,9 @@ class TestGetPr:
             )
             with pytest.raises(gh.GitHostError) as ei:
                 adapter.get_pr("o/p/r", 1)
-        assert "expired" in str(ei.value).lower() or \
-            "personal access tokens" in str(ei.value).lower()
+        assert (
+            "expired" in str(ei.value).lower() or "personal access tokens" in str(ei.value).lower()
+        )
 
     def test_404_surfaces_scope_hint(self, adapter):
         with patch.object(adapter, "_request") as m:
@@ -164,10 +167,13 @@ class TestListOpenPrs:
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
                 status=200,
-                body={"count": 2, "value": [
-                    _pr_payload(pullRequestId=1),
-                    _pr_payload(pullRequestId=2),
-                ]},
+                body={
+                    "count": 2,
+                    "value": [
+                        _pr_payload(pullRequestId=1),
+                        _pr_payload(pullRequestId=2),
+                    ],
+                },
             )
             prs = adapter.list_open_prs("o/p/r")
         assert [p.number for p in prs] == [1, 2]
@@ -177,7 +183,8 @@ class TestListOpenPrs:
         page2_body = {"count": 1, "value": [_pr_payload(pullRequestId=2)]}
         responses = [
             _mock_response(
-                status=200, body=page1_body,
+                status=200,
+                body=page1_body,
                 headers={"x-ms-continuationtoken": "TOKEN-PAGE-2"},
             ),
             _mock_response(status=200, body=page2_body),
@@ -193,12 +200,12 @@ class TestGetPrForBranch:
     def test_uses_refs_heads_filter(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body={"count": 0, "value": []},
+                status=200,
+                body={"count": 0, "value": []},
             )
             adapter.get_pr_for_branch("o/p/r", "feature/x")
         call = m.call_args
-        assert call.kwargs["params"]["searchCriteria.sourceRefName"] \
-            == "refs/heads/feature/x"
+        assert call.kwargs["params"]["searchCriteria.sourceRefName"] == "refs/heads/feature/x"
 
     def test_found(self, adapter):
         with patch.object(adapter, "_request") as m:
@@ -212,7 +219,8 @@ class TestGetPrForBranch:
     def test_not_found(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body={"count": 0, "value": []},
+                status=200,
+                body={"count": 0, "value": []},
             )
             assert adapter.get_pr_for_branch("o/p/r", "stale") is None
 
@@ -221,11 +229,11 @@ class TestPostComment:
     def test_creates_thread_with_single_comment(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200,   # Azure returns 200 for thread creation, not 201
+                status=200,  # Azure returns 200 for thread creation, not 201
                 body=_thread_payload(thread_id=123),
             )
             c = adapter.post_comment("o/p/r", 42, "Great work")
-        assert c.id == 1   # the comment id within the thread
+        assert c.id == 1  # the comment id within the thread
         call = m.call_args
         assert call.args[0] == "POST"
         sent = call.kwargs["body"]
@@ -241,7 +249,8 @@ class TestPostComment:
         we need to fail loudly rather than return a blank Comment."""
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body={"id": 1, "comments": []},
+                status=200,
+                body={"id": 1, "comments": []},
             )
             with pytest.raises(gh.GitHostError, match="empty thread"):
                 adapter.post_comment("o/p/r", 1, "hi")
@@ -249,7 +258,8 @@ class TestPostComment:
     def test_comment_url_includes_thread(self, adapter):
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
-                status=200, body=_thread_payload(thread_id=555),
+                status=200,
+                body=_thread_payload(thread_id=555),
             )
             c = adapter.post_comment("myorg/myproject/app", 42, "hi")
         assert "discussionId=555" in c.url
@@ -260,19 +270,22 @@ class TestListComments:
         with patch.object(adapter, "_request") as m:
             m.return_value = _mock_response(
                 status=200,
-                body={"count": 2, "value": [
-                    _thread_payload(
-                        thread_id=1,
-                        comments=[
-                            _comment_payload(id=1, content="first"),
-                            _comment_payload(id=2, content="reply to first"),
-                        ],
-                    ),
-                    _thread_payload(
-                        thread_id=2,
-                        comments=[_comment_payload(id=3, content="separate thread")],
-                    ),
-                ]},
+                body={
+                    "count": 2,
+                    "value": [
+                        _thread_payload(
+                            thread_id=1,
+                            comments=[
+                                _comment_payload(id=1, content="first"),
+                                _comment_payload(id=2, content="reply to first"),
+                            ],
+                        ),
+                        _thread_payload(
+                            thread_id=2,
+                            comments=[_comment_payload(id=3, content="separate thread")],
+                        ),
+                    ],
+                },
             )
             comments = adapter.list_comments("o/p/r", 42)
         assert [c.id for c in comments] == [1, 2, 3]
@@ -284,8 +297,8 @@ class TestListComments:
 class TestNetworkErrors:
     def test_unreachable(self, adapter):
         import urllib.error
-        with patch("urllib.request.urlopen",
-                   side_effect=urllib.error.URLError("dns")):
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns")):
             with pytest.raises(gh.GitHostError, match="unreachable"):
                 adapter.get_pr("o/p/r", 1)
 
@@ -293,10 +306,12 @@ class TestNetworkErrors:
 class TestFactory:
     def test_azdo_cfg_returns_azure_adapter(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AZDO_TOK", "x")
-        cfg = gh.GitHostConfig.from_dict({
-            "provider": "azure-devops",
-            "token": "AZDO_TOK",
-        })
+        cfg = gh.GitHostConfig.from_dict(
+            {
+                "provider": "azure-devops",
+                "token": "AZDO_TOK",
+            }
+        )
         adapter = gh.get_adapter(cfg, maestro_root=tmp_path)
         assert isinstance(adapter, ghaz.AzureDevOpsAdapter)
         assert adapter.host == "dev.azure.com"

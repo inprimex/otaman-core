@@ -117,7 +117,8 @@ def _make_token(
 class TestOIDCConfig:
     def test_effective_jwks_uri_from_explicit(self):
         cfg = OIDCConfig(
-            issuer="https://x", audience="y",
+            issuer="https://x",
+            audience="y",
             jwks_uri="https://override.example/jwks",
         )
         assert cfg.effective_jwks_uri() == "https://override.example/jwks"
@@ -240,7 +241,8 @@ class TestVerification:
 
     def test_wrong_issuer_rejected(self, config, keypair, jwks):
         token = _make_token(
-            keypair["private_pem"], iss="https://other-issuer.example/",
+            keypair["private_pem"],
+            iss="https://other-issuer.example/",
         )
         validator = OIDCValidator(config, jwks_fetcher=lambda url: jwks)
         result = validator.validate(f"Bearer {token}")
@@ -305,7 +307,9 @@ class TestJWKSCache:
             return jwks
 
         validator = OIDCValidator(
-            config, jwks_fetcher=counting_fetcher, cache_ttl=300,
+            config,
+            jwks_fetcher=counting_fetcher,
+            cache_ttl=300,
         )
         token = _make_token(keypair["private_pem"])
         validator.validate(f"Bearer {token}")
@@ -376,9 +380,7 @@ class TestJWKSCache:
         with pytest.raises(OIDCError, match="network down"):
             validator.validate(f"Bearer {token}")
 
-    def test_jwks_fetch_failure_falls_back_to_stale_cache(
-        self, config, keypair, jwks
-    ):
+    def test_jwks_fetch_failure_falls_back_to_stale_cache(self, config, keypair, jwks):
         fetch_count = [0]
 
         def flaky_fetcher(url):

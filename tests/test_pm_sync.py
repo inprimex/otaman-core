@@ -181,6 +181,7 @@ class TestPmSyncAdapterRuntimeCheckable:
             def handle_inbound_event(self, payload): ...
             def list_statuses(self): ...
             def list_priorities(self): ...
+
             # no get_users — should fail isinstance
 
         assert not isinstance(PartialAdapter(), pm.PmSyncAdapter)
@@ -368,7 +369,7 @@ class TestPmSyncConfigCustomFields:
         assert result.custom_fields is None
 
     def test_hyphenated_key(self, tmp_path):
-        block = "              custom-fields:\n                jtbd-id: 4\n                otaman-agent: 5\n                spec-path: 6\n"
+        block = "              custom-fields:\n                jtbd-id: 4\n                otaman-agent: 5\n                spec-path: 6\n"  # noqa: E501
         p = tmp_path / "platform.yaml"
         p.write_text(self._yaml_with(block), encoding="utf-8")
         result = pm.load_pm_sync_config(p)

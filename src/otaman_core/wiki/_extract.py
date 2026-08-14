@@ -95,8 +95,10 @@ def _extract_imports(root, src: bytes) -> list[str]:
             # import yaml  /  import os.path
             for c in node.children:
                 if c.type in ("dotted_name", "aliased_import"):
-                    inner = c if c.type == "dotted_name" else next(
-                        (x for x in c.children if x.type == "dotted_name"), None
+                    inner = (
+                        c
+                        if c.type == "dotted_name"
+                        else next((x for x in c.children if x.type == "dotted_name"), None)
                     )
                     if inner:
                         modules.append(_dotted_name(inner, src))
@@ -229,7 +231,7 @@ def extract_entities(src_bytes: bytes, rel_path: Path, repo_name: str) -> list[W
     return parse_file(src_bytes, rel_path, repo_name).entities
 
 
-def _unwrap_decorated(node: "Node") -> "Node | None":
+def _unwrap_decorated(node: Node) -> Node | None:
     for child in node.children:
         if child.type == "function_definition":
             return child

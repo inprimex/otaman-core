@@ -24,7 +24,7 @@ Usage:
     from _secrets import SecretRef, resolve, resolve_or_fail
 
     ref = SecretRef.from_config(config_value_from_yaml)
-    value = resolve(ref, maestro_root=Path("/path/to/workspace"))  # legacy: maestro_root param renamed at 1.0
+    value = resolve(ref, maestro_root=Path("/path/to/workspace"))
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class SecretRef:
     sources: list[dict[str, Any]]
 
     @classmethod
-    def from_config(cls, config: Any) -> "SecretRef":
+    def from_config(cls, config: Any) -> SecretRef:
         """Build from a YAML config value.
 
         Accepts:
@@ -108,7 +108,7 @@ class DotenvSource:
             return None
         dotenv_path = Path(maestro_root) / ".otaman" / "secrets.env"
         if not dotenv_path.is_file():
-            dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback removed at 1.0
+            dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro
         if not dotenv_path.is_file():
             return None
         return _read_dotenv_value(dotenv_path, name)
@@ -163,7 +163,7 @@ def load_dotenv(maestro_root: Path | str) -> dict[str, str]:  # legacy: paramete
     """
     path = Path(maestro_root) / ".otaman" / "secrets.env"
     if not path.is_file():
-        path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback removed at 1.0
+        path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro
     if not path.is_file():
         return {}
     out: dict[str, str] = {}
