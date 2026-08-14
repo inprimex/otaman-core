@@ -108,9 +108,7 @@ class DotenvSource:
             return None
         dotenv_path = Path(maestro_root) / ".otaman" / "secrets.env"
         if not dotenv_path.is_file():
-            dotenv_path = (
-                Path(maestro_root) / ".maestro" / "secrets.env"
-            )  # legacy: .maestro fallback removed at 1.0
+            dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro
         if not dotenv_path.is_file():
             return None
         return _read_dotenv_value(dotenv_path, name)
@@ -165,9 +163,7 @@ def load_dotenv(maestro_root: Path | str) -> dict[str, str]:  # legacy: paramete
     """
     path = Path(maestro_root) / ".otaman" / "secrets.env"
     if not path.is_file():
-        path = (
-            Path(maestro_root) / ".maestro" / "secrets.env"
-        )  # legacy: .maestro fallback removed at 1.0
+        path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro
     if not path.is_file():
         return {}
     out: dict[str, str] = {}
