@@ -69,6 +69,11 @@ bus:
   transport:
     type: file
     opts: {}
+  boundaries:
+    allow_from:
+      - program: poc-openwerables
+        agents: [pm-agent, qa-agent]
+        types: [question, info]
 
 terminal:
   interactive: true
