@@ -427,3 +427,91 @@ class TestRunnerAgentBootstrapPluginDir:
         config = _runner_config({"plugin_dir": ["not", "a", "string"]})
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors, "expected validation error for non-string plugin_dir"
+
+
+# ---------------------------------------------------------------------------
+# single-bus-per-program — bus.boundaries.allow_from
+#
+# Task 1.2 from openspec/changes/single-bus-per-program/tasks.md: schema for
+# the receiving program's cross-program ingress grants (fail-closed model),
+# additive under the existing permissive `bus:` block. Valid + invalid cover.
+
+
+def _bus_config(bus: dict) -> dict:
+    """Minimal valid platform.yaml with a `bus:` block."""
+    return {
+        "project": "example",
+        "version": "1.0",
+        "repos": [{"name": "repo-a", "path": "../repo-a", "owner": "agent-a"}],
+        "bus": bus,
+    }
+
+
+class TestBusBoundaries:
+    def test_program_only_grant_validates(self):
+        schema = _load_schema()
+        config = _bus_config({"boundaries": {"allow_from": [{"program": "otaman-dev"}]}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_grant_with_agents_and_types_validates(self):
+        schema = _load_schema()
+        config = _bus_config(
+            {
+                "boundaries": {
+                    "allow_from": [
+                        {
+                            "program": "poc-openwerables",
+                            "agents": ["pm-agent", "qa-agent"],
+                            "types": ["question", "info"],
+                        }
+                    ]
+                }
+            }
+        )
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_no_boundaries_still_validates(self):
+        """Absent boundaries is the fail-closed default — schema must allow it."""
+        schema = _load_schema()
+        config = _bus_config({"routing_rules": [{"when": {"to": "human"}, "cc": ["spec-agent"]}]})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]
+
+    def test_grant_missing_program_rejected(self):
+        schema = _load_schema()
+        config = _bus_config({"boundaries": {"allow_from": [{"agents": ["pm-agent"]}]}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected error: grant requires `program`"
+
+    def test_grant_unknown_field_rejected(self):
+        schema = _load_schema()
+        config = _bus_config(
+            {"boundaries": {"allow_from": [{"program": "otaman-dev", "allow_to": "x"}]}}
+        )
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected error: grant is additionalProperties: false"
+
+    def test_boundaries_unknown_field_rejected(self):
+        schema = _load_schema()
+        config = _bus_config({"boundaries": {"deny_from": []}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected error: boundaries is additionalProperties: false"
+
+    def test_invalid_program_slug_rejected(self):
+        schema = _load_schema()
+        config = _bus_config({"boundaries": {"allow_from": [{"program": "Bad_Caps"}]}})
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors, "expected error: program must match slug pattern"
+
+    def test_boundaries_coexists_with_routing_rules(self):
+        schema = _load_schema()
+        config = _bus_config(
+            {
+                "routing_rules": [{"when": {"to": "human"}, "cc": ["spec-agent"]}],
+                "boundaries": {"allow_from": [{"program": "otaman-dev"}]},
+            }
+        )
+        errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
+        assert errors == [], [e.message for e in errors]

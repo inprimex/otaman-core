@@ -693,6 +693,45 @@ properties:
         description: >
           Bus transport selection. CE: file-based (default). EE: nats-kv,
           redis, etc. Shape evolves with the transport plugin contract.
+      boundaries:
+        type: object
+        additionalProperties: false
+        description: >
+          Cross-program ingress control (bus-uri-addressing). Governs which
+          OTHER programs' agents may deliver into THIS program's bus. Absent
+          means no cross-program ingress (fail closed). Intra-program traffic
+          never consults boundaries.
+        properties:
+          allow_from:
+            type: array
+            description: >
+              Grants permitting a sender program's agents to deliver here. A
+              cross-program sender is allowed only if the (sender program,
+              sender agent, message type) tuple matches some grant.
+            items:
+              type: object
+              additionalProperties: false
+              required: [program]
+              properties:
+                program:
+                  type: string
+                  pattern: "^[a-z][a-z0-9-]{1,63}$"
+                  description: "Sender program slug (same org). Required."
+                agents:
+                  type: array
+                  items:
+                    type: string
+                    pattern: "^[a-z][a-z0-9-]{1,63}$"
+                  description: >
+                    Optional: narrow the grant to named sender agents.
+                    Absent means any agent in the sender program.
+                types:
+                  type: array
+                  items:
+                    type: string
+                  description: >
+                    Optional: allowed message types (e.g. question, info).
+                    Absent means any type.
 
   # ---------------------------------------------------------------------------
   # otaman-remote-terminal / ce-org-agent-bootstrap
