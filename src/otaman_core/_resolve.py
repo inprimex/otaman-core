@@ -12,8 +12,50 @@ account config_dir paths declared in launch-settings.yaml.
 from __future__ import annotations
 
 import os
+import tempfile
 import warnings as _warnings
 from pathlib import Path
+
+#: Env sentinel set by the otaman_core.testing isolation primitive. When
+#: present, root resolution refuses to return any path outside the OS tmp
+#: tree — a leaky test suite can never touch a live bus (bus-test-isolation).
+TEST_MODE_ENV = "OTAMAN_TEST_MODE"
+
+
+class RootResolutionError(RuntimeError):
+    """Root resolution refused a result rather than returning a dangerous root.
+
+    Raised when the ``OTAMAN_ROOT`` / ``MAESTRO_ROOT`` env step points at a
+    non-program root (org-level path or bare ``.agents`` dir), or when
+    ``OTAMAN_TEST_MODE`` is set and resolution would return a root outside
+    the OS tmp tree. The message always names the offending variable/path.
+    """
+
+
+def _under_os_tmp(path: Path) -> bool:
+    """True if *path* resolves inside the OS temp tree (tempfile.gettempdir())."""
+    tmp = Path(tempfile.gettempdir()).resolve()
+    try:
+        path.resolve().relative_to(tmp)
+        return True
+    except ValueError:
+        return False
+
+
+def _enforce_test_sentinel(result: Path | None) -> Path | None:
+    """Under OTAMAN_TEST_MODE, refuse any resolved root outside the OS tmp tree.
+
+    Fails loudly rather than letting a leaky suite fall through to a real
+    marker/env/walk-up root. A ``None`` result (nothing resolved) is fine.
+    """
+    if result is not None and os.environ.get(TEST_MODE_ENV) and not _under_os_tmp(result):
+        raise RootResolutionError(
+            f"{TEST_MODE_ENV} is set but root resolution returned {result}, "
+            f"outside the OS tmp tree ({tempfile.gettempdir()}). Refusing to "
+            "touch a real bus in test mode — adopt otaman_core.testing.isolate_bus."
+        )
+    return result
+
 
 # Shells that resolve paths on a different host (remote / different userspace)
 # from the Python interpreter. For these, we emit POSIX-style paths and defer
@@ -113,13 +155,13 @@ def find_maestro_root(
 
     direct = _find_maestro_root_from(origin)
     if direct is not None:
-        return direct
+        return _enforce_test_sentinel(direct)
 
     # Worktrees don't usually carry their own marker; resolve to the
     # main repo's working tree and retry the chain from there.
     main = resolve_worktree_main(origin)
     if main is not None:
-        return _find_maestro_root_from(main)
+        return _enforce_test_sentinel(_find_maestro_root_from(main))
 
     return None
 
@@ -184,8 +226,18 @@ def _find_maestro_root_from(origin: Path) -> Path | None:  # legacy: renamed at 
         env_root = otaman_env
     if env_root:
         p = Path(env_root).resolve()
-        if (p / "platform.yaml").exists() or (p / ".agents").is_dir():
+        # bus-test-isolation 1.2: the env step accepts ONLY program roots
+        # (platform.yaml present). An org-level path or a bare `.agents` dir
+        # is rejected loudly — never silently accepted, never silently
+        # skipped — so a poisoned OTAMAN_ROOT cannot create a rogue bus root.
+        if (p / "platform.yaml").is_file():
             return p
+        var = "OTAMAN_ROOT" if otaman_env else "MAESTRO_ROOT"
+        raise RootResolutionError(
+            f"{var}={p} is not a program root (no platform.yaml). Org-level "
+            "paths and bare .agents directories are not accepted. Unset the "
+            "variable or point it at a program directory."
+        )
 
     # 3. Walk-up fallback (legacy layout: otaman artifacts in a parent directory)
     current = origin

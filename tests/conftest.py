@@ -5,6 +5,12 @@ import pathlib
 
 import pytest
 
+# bus-test-isolation 1.4: adopt the shared isolation primitive. Registering
+# isolate_bus (autouse) strips OTAMAN_ROOT/MAESTRO_ROOT/OTAMAN_AGENT, pins root
+# resolution at a per-test tmp sandbox, and sets OTAMAN_TEST_MODE — so the suite
+# can never write into a live bus, with no manual `env -u OTAMAN_ROOT` needed.
+from otaman_core.testing import isolate_bus  # noqa: F401
+
 
 @pytest.fixture(autouse=True, scope="session")
 def patch_path_home(tmp_path_factory):
