@@ -1,5 +1,7 @@
 # otaman-core
 
+> **Otaman platform:** **otaman-core (you are here)** · [otaman-cli](https://github.com/inprimex/otaman-cli) · [otaman-plugin](https://github.com/inprimex/otaman-plugin) · [otaman-bridge](https://github.com/inprimex/otaman-bridge) · [otaman-runner](https://github.com/inprimex/otaman-runner) · [otaman-adapters](https://github.com/inprimex/otaman-adapters)
+
 Shared kernel for the Otaman platform — protocols, storage adapters, secrets chain, schemas, and OTel helpers. Nothing lives here unless two or more repos depend on it.
 
 Full documentation, walkthroughs, and architecture notes live at **[docs.otaman.ai](https://docs.otaman.ai)**.
