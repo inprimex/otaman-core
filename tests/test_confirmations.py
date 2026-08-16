@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 
 import pytest
 
@@ -47,6 +48,10 @@ class TestAppendVerify:
 
 
 class TestSecurity:
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX mode bits — Windows uses ACLs, not 0600 octal modes",
+    )
     def test_ledger_file_is_0600(self, ledger):
         append_confirmation("m1", "x", "t", path=ledger)
         mode = stat.S_IMODE(ledger.stat().st_mode)

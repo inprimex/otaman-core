@@ -108,8 +108,10 @@ class TestEnvVar:
         # loudly (naming the var + path), never silently skipped to walk-up.
         repo = workspace["repo"]
         monkeypatch.setenv("MAESTRO_ROOT", "/nonexistent/path")
-        with pytest.raises(RootResolutionError, match=r"MAESTRO_ROOT.*/nonexistent/path"):
+        with pytest.raises(RootResolutionError, match="MAESTRO_ROOT") as exc:
             find_maestro_root(repo)
+        # names the offending path too (separator-agnostic for Windows)
+        assert "nonexistent" in str(exc.value)
 
     def test_marker_beats_env_var(self, workspace, monkeypatch):
         """Marker file has higher priority than env var."""
