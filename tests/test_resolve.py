@@ -2,7 +2,6 @@
 
 import pathlib
 import warnings
-from pathlib import Path
 
 import pytest
 
@@ -10,6 +9,7 @@ import otaman_core._resolve as _resolve_mod
 
 # _resolve is provided by the otaman_core package (pyproject pythonpath = ["src"])
 from otaman_core._resolve import (
+    RootResolutionError,
     expand_config_dir,
     find_maestro_root,
     find_marker,
@@ -18,6 +18,20 @@ from otaman_core._resolve import (
     read_expected_account,
     resolve_worktree_main,
 )
+
+
+@pytest.fixture(autouse=True)
+def _pristine_resolution_env(monkeypatch):
+    """Strip the sandbox root the shared isolate_bus fixture pins.
+
+    Every other suite wants ``OTAMAN_ROOT`` pinned at the tmp sandbox, but
+    this module tests the resolution chain itself (marker → env → walk-up →
+    no-match) and must start from a clean env. ``OTAMAN_TEST_MODE`` stays set,
+    so the sentinel still guards every result — all roots here live under
+    ``tmp_path`` anyway.
+    """
+    monkeypatch.delenv("OTAMAN_ROOT", raising=False)
+    monkeypatch.delenv("MAESTRO_ROOT", raising=False)
 
 
 @pytest.fixture
@@ -90,11 +104,12 @@ class TestEnvVar:
         assert find_maestro_root(repo) == maestro.resolve()
 
     def test_env_var_invalid(self, workspace, monkeypatch):
+        # bus-test-isolation 1.2: a non-program-root env value is rejected
+        # loudly (naming the var + path), never silently skipped to walk-up.
         repo = workspace["repo"]
         monkeypatch.setenv("MAESTRO_ROOT", "/nonexistent/path")
-        # Falls through to walk-up
-        result = find_maestro_root(repo)
-        assert result is None or result != Path("/nonexistent/path")
+        with pytest.raises(RootResolutionError, match=r"MAESTRO_ROOT.*/nonexistent/path"):
+            find_maestro_root(repo)
 
     def test_marker_beats_env_var(self, workspace, monkeypatch):
         """Marker file has higher priority than env var."""
