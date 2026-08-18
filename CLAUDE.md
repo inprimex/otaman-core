@@ -60,3 +60,11 @@ a merge. Do not add secrets, credentials, or personal data.
 - `CONTRIBUTING.md` — contribution workflow and license-of-contributions
 - `SECURITY.md` — vulnerability reporting
 - **[docs.otaman.ai](https://docs.otaman.ai)** — full platform documentation
+
+---
+
+> **Note for platform operators:** running `otaman init` writes the private
+> orchestration rules (fleet layout, bus internals) to a **gitignored
+> `CLAUDE.local.md`** in your working tree, which Claude Code auto-loads after
+> this file. That file is never committed; this committed guide is the
+> public-safe entry point. Re-run `otaman init` to refresh the local rules.

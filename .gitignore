@@ -19,6 +19,11 @@ Thumbs.db
 # Otaman marker file (local pointer to otaman workspace)
 .otaman
 
+# Otaman orchestration rules — written by `otaman init` to a gitignored file
+# that Claude Code auto-loads after CLAUDE.md; never committed (bus-test /
+# external-audit: keeps private fleet orchestration out of the public repo).
+CLAUDE.local.md
+
 # Wiki — generated output (committed only for spikes/samples)
 .otaman-wiki/
 
