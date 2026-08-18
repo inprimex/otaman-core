@@ -62,3 +62,14 @@ jobs:
       - name: Audit maestro references
         if: runner.os != 'Windows'
         run: bash scripts/audit-maestro-refs.sh src/
+
+  # Aggregate gate: the single, rename-/matrix-churn-proof required check for
+  # branch protection on main (fleet-uniform). `needs: [test]` waits for every
+  # matrix leg; if any leg fails, ci-ok is skipped, which GitHub treats as
+  # not-passed — so this blocks merges correctly with plain `needs:`.
+  ci-ok:
+    name: ci-ok
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
