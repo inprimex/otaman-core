@@ -1,126 +1,62 @@
-<!-- otaman:begin -->
-## Otaman Orchestration Rules
+# otaman-core — working in this repository
 
-**You are `core-agent`**. You own this repository: **otaman-core**.
+`otaman-core` is the shared Python **kernel** for the Otaman platform: storage
+protocols, the canonical `platform.yaml` schema, workspace/identity resolution,
+the secret-source chain, bus addressing, auth validators, and hook/adapter
+Protocols. Code belongs here only when **two or more** components depend on it
+(the two-consumer rule); anything used by a single component stays in that
+component.
 
-Otaman folder: `../otaman-meta/` (contains `.agents/`, `platform.yaml`, bus messages)
+## Development
 
-### First Session Checklist
-0. **Set identity for hooks**: `echo "core-agent" > ../otaman-meta/.agents/current-agent` — hooks read this file directly; without it they see a stale agent name and block writes.
-1. Run `otaman check` (Bash) — see pending bus messages. The CLI auto-detects project root, your agent identity, and ack status. No MCP tool-loading needed for this hot path; pre-allowed in `.claude/settings.local.json`.
-2. Read `../otaman-meta/.agents/queue/core-agent.md` — see your active/queued/blocked tasks
-3. Read specs relevant to your repo (specs_dir paths below)
-4. Run `git log --oneline -10` — understand recent changes
-5. If `../otaman-meta/.agents/knowledge/` exists, check for tech docs relevant to your work
-6. Then: resume active task, or pick highest-priority queued task, or act on bus messages
+Requires **Python 3.11+** and [`uv`](https://docs.astral.sh/uv/).
 
-### Ownership
-- This repo (`../otaman-core`) is YOURS — you may read and write freely here
-- Other repos (READ-ONLY, do not write to them):
-  - otaman-plugin (../otaman-plugin) — owned by **plugin-agent** (READ-ONLY)
-  - otaman-cli (../otaman-cli) — owned by **cli-agent** (READ-ONLY)
-  - otaman-bridge (../otaman-bridge) — owned by **bridge-agent** (READ-ONLY)
-  - otaman-runner (../otaman-runner) — owned by **runner-agent** (READ-ONLY)
-  - otaman-fswatch (../otaman-fswatch) — owned by **fswatch-agent** (READ-ONLY)
-  - otaman-web (../otaman-web) — owned by **web-agent** (READ-ONLY)
-  - otaman-adapters (../otaman-adapters) — owned by **adapters-agent** (READ-ONLY)
-  - otaman-router (../otaman-router) — owned by **router-agent** (READ-ONLY)
-  - otaman-deploy (../otaman-deploy) — owned by **deploy-agent** (READ-ONLY)
-  - otaman-license (../otaman-license) — owned by **license-agent** (READ-ONLY)
-  - otaman-specs (../otaman-specs) — owned by **spec-agent** (READ-ONLY)
-  - otaman-strategy (../otaman-strategy) — owned by **cofounder-agent** (READ-ONLY)
-  - otaman-business (../otaman-business) — owned by **cpo-agent** (READ-ONLY)
-- You may read other repos' source code, configs, and CLAUDE.md to understand their APIs
-- If you need a change in another repo, send a `task-assignment` or `question` message to its owner
+```bash
+uv sync --extra test              # install with dev + test extras
+uv run pytest                     # run the test suite
+uv run ruff check .               # lint  (ce-lint-standard baseline)
+uv run ruff format --check .      # format check
+uv run mypy src/otaman_core       # type-check
+uv build                          # build the wheel/sdist
+```
 
-### Communication — Bash CLI for hot path, MCP for richer ops
+CI runs lint, format-check, mypy, the test suite, a package build, and an import
+smoke test across **Python 3.11–3.13 on Linux, macOS, and Windows**. A change
+must pass the full CI gate to merge.
 
-Hot-path commands (frequent, read-mostly) — use the `otaman` Bash CLI, pre-allowed in this repo's settings:
-- `otaman check` — list pending messages for you (auto-detects identity)
-- `otaman ack <msg-stem>` — acknowledge a message (default: resolved; `--read` keeps it visible)
-- `otaman status` — project-wide summary
-- `otaman complete <change-name> --all` — mark OpenSpec tasks complete + broadcast task-complete
-- `otaman propose <title>` — propose a spec change (pending human approval)
-- Read `.agents/queue/<your-agent>.md` directly for your task queue (no CLI subcommand needed)
-- Read `.agents/blocked/<your-agent>.md` directly for blocked-task tracking
+## Repository layout
 
-Richer / less-frequent ops — use MCP tools (load schemas with ToolSearch first when calling directly):
-- `otaman_send(cwd, to, subject, body)` — send a message to another agent
-- `otaman_read_message(cwd, message_stem)` — read full message content programmatically
-- `otaman_propose(cwd, title, what_needs_to_change, why_needed)` — propose a spec change
-- `otaman_complete(cwd, change_name, tasks)` — report task completion
-- `otaman_read_spec(cwd, spec_path)` — read spec files
-- `otaman_list_agents(cwd)`, `otaman_set_agent(cwd, name)`, `otaman_cleanup(cwd)` — agent registry / housekeeping
+| Path | Contents |
+|---|---|
+| `src/otaman_core/` | Kernel modules — protocols, adapters, resolvers, validators, OTel helpers |
+| `src/otaman_core/schemas/` | Canonical JSON/AsyncAPI/OpenAPI schemas, incl. `platform-schema.yaml` |
+| `scripts/` | Operational scripts (not packaged at install time) |
+| `tests/` | pytest suite, including schema-drift fixtures under `tests/fixtures/examples/` |
 
-Why the split: bus checks happen dozens of times per session, and the MCP-via-instruction path proved unreliable across model variants (2026-04-29 incident — see plugin CLAUDE.md). The Bash CLI is deterministic. Heavier write operations stay on MCP because their structured payload is worth the schema-load overhead.
+## Contracts
 
-### Bus Awareness (CRITICAL)
-- **Check the bus proactively** — do NOT wait for the human to tell you:
-  - After completing each task (feature done, test passing)
-  - Before starting a new task from your queue
-  - When idle or waiting for anything
-  - After every 3-5 tool calls during active work
-- **Never let pending messages exceed 3 without acting**
-- When you change an API or shared type: send `contract-change` via `otaman_send` BEFORE committing
-- Message handling while busy: ack as `read`, add to queue, finish current task first
-- Urgent messages: pause current work, inform the human immediately
+The schemas under `src/otaman_core/schemas/` and the module-level `Protocol`
+types are shared contracts: changes to them ripple to every consuming component.
+Keep them **backward-compatible**, add fixture coverage for schema changes, and
+call out contract changes explicitly in the PR description.
 
-### Agent Status (REQUIRED)
+## Conventions
 
-Before writing any code for a specific task, call:
-  `otaman set-status working --task "<N.M task description>" --change <change-name>`
+- Branch per change; all changes land via pull request against `main`.
+- Conventional-commit style messages; sign off commits (`git commit -s`) per
+  `CONTRIBUTING.md`.
+- Include tests for behavioural changes; update `README.md` / `CHANGELOG.md`
+  when public API or behaviour changes.
 
-When waiting on another agent or a dependency:
-  `otaman set-status waiting --task "<N.M ...>" --change <change-name>`
+## For AI assistants / automated contributors
 
-When done with all current tasks:
-  `otaman set-status idle`
+Follow `CONTRIBUTING.md`, keep each change focused, include tests, and make sure
+the full CI gate (ruff + format + mypy + pytest + build) passes before proposing
+a merge. Do not add secrets, credentials, or personal data.
 
-One CLI call — no file editing, no token overhead.
+## See also
 
-### Task Queue
-- Your queue file: `../otaman-meta/.agents/queue/core-agent.md`
-- Max 1 active task at a time — finish or pause before switching
-- When a `task-assignment` arrives while you're busy: ack as `read`, add to Queued section
-- When you finish a task: check bus, then pick highest-priority queued item
-- Urgent messages override: pause active task, handle urgent item
-
-### Task Completion Reporting (CRITICAL)
-- When you finish tasks from a `task-assignment`, you MUST report completion:
-  - `otaman complete <change-name> --tasks "2.1, 2.3"` (specific tasks)
-  - `otaman complete <change-name> --all` (all tasks for that change)
-- This updates `tasks.md` checkboxes in the specs repo and sends a `task-complete` bus message
-- **Lifecycle**: task-assignment received -> ack "read" -> implement -> `otaman complete` -> ack "resolved"
-- NEVER ack a task-assignment as "resolved" without first running `otaman complete`
-
-### Specs (OpenSpec)
-- Specs repo: `../otaman-specs` (READ-ONLY)
-- Your spec area is not yet mapped — check `../otaman-specs/openspec/specs/` for relevant folders
-- **Shared contracts**: `../otaman-specs/openspec/specs/shared-contracts/spec.md` — message schemas, signal classes, security contracts
-- **Active changes for you**: scan `../otaman-specs/openspec/changes/` for folders whose `tasks.md` references your repo or domain. Read `proposal.md` → `design.md` → `tasks.md` in each.
-- **All accumulated specs**: `../otaman-specs/openspec/specs/`
-- To propose a spec change, use `/otaman:propose` — do NOT modify specs directly
-
-### Spec Change Rules (CRITICAL)
-- If you discover a missing endpoint, contract gap, or any spec change needed: run `/otaman:propose`, then **STOP** working on that feature
-- **Never implement against a spec that doesn't exist yet** — wait for human approval + spec commit
-- After proposing, switch to other tasks. Run `/otaman:check` periodically to see if your proposal was approved
-- Resume the blocked task only after you see BOTH `spec-change-approved` AND `spec-change` messages
-- Check `../otaman-meta/.agents/blocked/core-agent.md` for your currently blocked tasks
-
-
-
-
-
-### Spec Authoring — NOT your job (CRITICAL)
-- **spec-agent authors ALL spec artifacts** — `proposal.md`, `design.md`, `tasks.md`, `specs/*/spec.md`, JSON schemas, ADRs. These live in `otaman-specs` which is READ-ONLY for you.
-- **Your only spec action is `/otaman:propose`** — you describe what you need, spec-agent writes it.
-- **After approval + spec-change notification**: wait for `task-assignment` messages addressed to you from the mapped `tasks.md`. Those tasks will be **implementation work in your repo**, not spec authoring.
-- **Never write**: `proposal.md`, `design.md`, `tasks.md`, `spec.md`, ADR files, or any file under `otaman-specs/openspec/`. Even after approval. Even if you think it would be faster.
-- If you feel the urge to "just fill in the spec myself" — stop, send a `question` message to spec-agent instead.
-
-### Git Workflow
-- Work in branches: `agent/core-agent/{feature-name}`
-- All changes go through PRs
-- Write clear commit messages for the audit trail
-<!-- otaman:end -->
+- `README.md` — overview, install, and usage examples
+- `CONTRIBUTING.md` — contribution workflow and license-of-contributions
+- `SECURITY.md` — vulnerability reporting
+- **[docs.otaman.ai](https://docs.otaman.ai)** — full platform documentation
