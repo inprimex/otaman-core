@@ -20,7 +20,7 @@ test = ["pytest>=7", "keyring>=24", "tree-sitter>=0.25", "tree-sitter-python>=0.
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.1",  # ce-lint-standard: pin exact (F182 — no CI tooling drift)
+    "ruff==0.16.3",  # ce-lint-standard: pin exact (F182 — no CI tooling drift)
     "mypy>=1.10",
     "types-pyyaml",
     "types-jsonschema",
