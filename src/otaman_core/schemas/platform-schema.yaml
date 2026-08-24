@@ -744,6 +744,35 @@ properties:
     description: "Terminal/bridge runtime configuration (otaman-remote-terminal)."
 
   # ---------------------------------------------------------------------------
+  # hitl-confirmation-adapters
+  #
+  # Program-scope HITL confirmation overlay. NARROWING-ONLY: a program may
+  # restrict who approves (approver_roles), but MUST NOT weaken the tenant
+  # scope (~/.otaman/hitl.yaml). `allow_insecure_chat_approval` is tenant-only;
+  # a program setting it true is rejected by validate_platform (no-weakening).
+  # Absent hitl: preserves the default TTY-only posture unchanged.
+  hitl:
+    type: object
+    additionalProperties: false
+    description: >
+      Program-scope HITL confirmation overlay (narrowing-only; merges over the
+      tenant ~/.otaman/hitl.yaml scope without weakening it).
+    properties:
+      approver_roles:
+        type: array
+        items:
+          type: string
+        description: >
+          Narrow HUMAN-DECISION approval to these roster roles — a subset of
+          whoever the tenant scope already permits.
+      allow_insecure_chat_approval:
+        type: boolean
+        description: >
+          Tenant-only knob (lives in ~/.otaman/hitl.yaml). Accepted here only
+          so a program may explicitly restate `false`; setting it `true` at
+          program scope is rejected by validate_platform (no-weakening rule).
+
+  # ---------------------------------------------------------------------------
   # ce-org-agent-bootstrap / ce-bootstrap-harness-deps
   #
   # Top-level `runner:` carries runner-side bootstrap config: agent_bootstrap
