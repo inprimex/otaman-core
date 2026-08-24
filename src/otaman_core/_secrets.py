@@ -100,9 +100,8 @@ class DotenvSource:
     """Read from a ``secrets.env`` dotenv (0600).
 
     Two scopes, selected by ``scope`` on the spec:
-      - ``workspace`` (default): ``<maestro_root>/.otaman/secrets.env`` — the
-        per-workspace store; falls back to ``.maestro/secrets.env`` (legacy,
-        removed at 1.0).
+      - ``workspace`` (default): ``<root>/.otaman/secrets.env`` — the
+        per-workspace store (with the pre-1.0 legacy fallback handled below).
       - ``tenant``: ``~/.otaman/secrets.env`` — the per-OS-user store, alongside
         ``hitl.yaml``/``edition.yaml``. Used by tenant-scoped refs such as a
         human's TOTP seed (``hitl.yaml`` ``enrollment[<email>].totp_secret_ref``),
