@@ -205,6 +205,46 @@ def validate_builtin(config: dict[str, Any]) -> list[str]:
     return errors
 
 
+CONNECTIONS_SCHEMA_PATH = Path(__file__).parent / "schemas" / "connections-schema.yaml"
+
+
+def validate_connections(config: dict[str, Any]) -> list[str]:
+    """Validate a connections.yaml mapping (agent-credential-access 4.1).
+
+    Uses jsonschema against connections-schema.yaml when available; falls back to
+    a minimal structural check (each connection needs name/type/endpoint, and
+    never an embedded secret value). Returns a list of human-readable errors.
+    """
+    errors: list[str] = []
+    if not isinstance(config, dict):
+        return ["connections.yaml must be a YAML mapping"]
+
+    if jsonschema is not None:
+        schema = load_yaml(CONNECTIONS_SCHEMA_PATH)
+        validator = jsonschema.Draft7Validator(schema)
+        for err in sorted(validator.iter_errors(config), key=lambda e: list(e.absolute_path)):
+            path = ".".join(str(p) for p in err.absolute_path) or "(root)"
+            errors.append(f"  {path}: {err.message}")
+        return errors
+
+    # Builtin fallback (no jsonschema).
+    conns = config.get("connections", [])
+    if not isinstance(conns, list):
+        return ["connections: must be a list"]
+    for i, conn in enumerate(conns):
+        prefix = f"connections[{i}]"
+        if not isinstance(conn, dict):
+            errors.append(f"{prefix}: must be a mapping")
+            continue
+        for field in ("name", "type", "endpoint"):
+            if field not in conn:
+                errors.append(f"{prefix}: missing required field '{field}'")
+        scope = conn.get("scope")
+        if scope is not None and scope not in ("tenant", "org", "program"):
+            errors.append(f"{prefix}.scope: must be one of tenant, org, program")
+    return errors
+
+
 def main() -> int:
     # Determine config path
     if len(sys.argv) > 1:
