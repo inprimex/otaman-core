@@ -16,10 +16,15 @@ import pytest
 
 from otaman_core.connection_check import (
     CheckConfigError,
+    CheckReport,
     ConnectionChecker,
     NetworkProber,
     ProbeResult,
     SshProber,
+    load_reports,
+    persist_reports,
+    render_last_check,
+    report_store_path,
 )
 from otaman_core.connections import Connection
 from otaman_core.ssh_registry import AgentEntry, SshAgentRegistry
@@ -231,3 +236,105 @@ class TestEndToEndWithRealProbers:
 
         after = chk.check(_ssh_conn(), fix=True)  # self-heal
         assert after.status == "fixed" and after.healed
+
+
+def _report(name="gh-api", status="ok", checked_at="2026-08-24T17:00:00+00:00"):
+    return CheckReport(
+        name=name,
+        type="api",
+        endpoint="api.github.com",
+        reachable=True,
+        authenticated=True,
+        status=status,
+        detail="reachable; secret_ref has backing key",
+        healed=False,
+        checked_at=checked_at,
+    )
+
+
+class TestReportStore:
+    def test_path_is_program_root_json(self, tmp_path):
+        assert report_store_path(tmp_path) == tmp_path / "connection-checks.json"
+
+    def test_persist_then_load_round_trips(self, tmp_path):
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a"), _report("b")], path)
+        loaded = load_reports(path)
+        assert set(loaded) == {"a", "b"}
+        assert loaded["a"] == _report("a")
+
+    def test_load_absent_is_empty(self, tmp_path):
+        assert load_reports(report_store_path(tmp_path)) == {}
+
+    def test_load_corrupt_is_empty(self, tmp_path):
+        path = report_store_path(tmp_path)
+        path.write_text("{not json")
+        assert load_reports(path) == {}
+
+    def test_persist_upserts_by_name_preserving_others(self, tmp_path):
+        # `check <name>` updates one entry; siblings survive (spec: single check).
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a", status="ok"), _report("b", status="ok")], path)
+        persist_reports([_report("a", status="auth-failed")], path)
+        loaded = load_reports(path)
+        assert loaded["a"].status == "auth-failed"  # updated
+        assert loaded["b"].status == "ok"  # preserved
+
+    def test_persist_creates_parent_dir(self, tmp_path):
+        path = tmp_path / "nested" / "dir" / "connection-checks.json"
+        persist_reports([_report("a")], path)
+        assert path.is_file()
+
+    def test_store_carries_version_and_no_value_fields(self, tmp_path):
+        import json as _json
+
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a")], path)
+        raw = _json.loads(path.read_text())
+        assert raw["version"] == 1
+        # values-free: no serialized field name hints at a secret value
+        blob = path.read_text().lower()
+        assert "secret_value" not in blob and "private_key" not in blob
+
+    def test_load_ignores_unknown_fields(self, tmp_path):
+        import json as _json
+
+        path = report_store_path(tmp_path)
+        rec = {
+            "name": "a",
+            "type": "api",
+            "endpoint": "x",
+            "reachable": True,
+            "authenticated": True,
+            "status": "ok",
+            "detail": "d",
+            "healed": False,
+            "checked_at": "2026-08-24T17:00:00+00:00",
+            "future_field": "ignored",  # forward-compat
+        }
+        path.write_text(_json.dumps({"version": 99, "reports": [rec]}))
+        loaded = load_reports(path)
+        assert loaded["a"].name == "a"
+
+    def test_load_skips_incomplete_records(self, tmp_path):
+        import json as _json
+
+        path = report_store_path(tmp_path)
+        path.write_text(_json.dumps({"version": 1, "reports": [{"name": "only-name"}]}))
+        assert load_reports(path) == {}
+
+
+class TestRenderLastCheck:
+    def test_renders_status_and_timestamp(self):
+        assert render_last_check(_report("a", status="ok")) == "ok · 2026-08-24T17:00:00+00:00"
+
+    def test_none_renders_em_dash(self):
+        assert render_last_check(None) == "—"
+
+    def test_generator_join_flow(self, tmp_path):
+        # End-to-end: CLI persists, generator loads + joins on name, renders cell.
+        path = report_store_path(tmp_path)
+        persist_reports([_report("gh-api", status="ok")], path)
+        store = load_reports(path)
+        assert render_last_check(store.get("gh-api")) == "ok · 2026-08-24T17:00:00+00:00"
+        assert render_last_check(store.get("never-checked")) == "—"  # fallback
