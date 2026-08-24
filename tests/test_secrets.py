@@ -17,6 +17,8 @@ from otaman_core._secrets import (
     register_source,
     resolve,
     resolve_or_fail,
+    tenant_secrets_path,
+    upsert_dotenv_secret,
 )
 
 
@@ -249,3 +251,88 @@ class TestKeyringSource:
     def test_account_required(self):
         src = KeyringSource()
         assert src.resolve({"service": "maestro"}, {}) is None
+
+
+class TestTenantDotenvScope:
+    """`scope: tenant` reads ~/.otaman/secrets.env (hitl TOTP seed lives here)."""
+
+    def test_tenant_path_is_home_otaman_secrets_env(self, tmp_path):
+        assert tenant_secrets_path(tmp_path) == tmp_path / ".otaman" / "secrets.env"
+
+    def test_resolves_tenant_scoped_ref(self, tmp_path):
+        upsert_dotenv_secret(tenant_secrets_path(tmp_path), "HITL_TOTP_roman", "JBSWY3DPEHPK3PXP")
+        ref = SecretRef.from_config(
+            {"type": "dotenv", "name": "HITL_TOTP_roman", "scope": "tenant"}
+        )
+        assert resolve(ref, home=tmp_path) == "JBSWY3DPEHPK3PXP"
+
+    def test_tenant_scope_does_not_read_workspace(self, tmp_path, maestro_root):
+        # A tenant-scoped ref must NOT fall through to the workspace dotenv.
+        (maestro_root / ".otaman").mkdir()
+        (maestro_root / ".otaman" / "secrets.env").write_text("HITL_TOTP_roman=WORKSPACE\n")
+        ref = SecretRef.from_config(
+            {"type": "dotenv", "name": "HITL_TOTP_roman", "scope": "tenant"}
+        )
+        # tenant home (tmp_path) has no such file -> None, ignoring the workspace value
+        assert resolve(ref, maestro_root=maestro_root, home=tmp_path) is None
+
+    def test_workspace_scope_still_default(self, tmp_path, maestro_root):
+        (maestro_root / ".otaman").mkdir()
+        (maestro_root / ".otaman" / "secrets.env").write_text("KEY=ws-value\n")
+        ref = SecretRef.from_config({"type": "dotenv", "name": "KEY"})  # no scope
+        assert resolve(ref, maestro_root=maestro_root) == "ws-value"
+
+
+class TestUpsertDotenvSecret:
+    def test_creates_file_and_round_trips_via_reader(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        upsert_dotenv_secret(path, "HITL_TOTP_a", "ABC234")
+        assert path.is_file()
+        # round-trip through the tenant reader:
+        ref = SecretRef.from_config({"type": "dotenv", "name": "HITL_TOTP_a", "scope": "tenant"})
+        assert resolve(ref, home=tmp_path) == "ABC234"
+
+    def test_updates_in_place_preserving_other_keys(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        upsert_dotenv_secret(path, "A", "1")
+        upsert_dotenv_secret(path, "B", "2")
+        upsert_dotenv_secret(path, "A", "updated")
+        text = path.read_text()
+        assert "A=updated" in text
+        assert "B=2" in text
+        assert text.count("A=") == 1  # replaced, not duplicated
+
+    def test_preserves_comments_and_blanks(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        path.parent.mkdir(parents=True)
+        path.write_text("# my secrets\n\nEXISTING=keep\n")
+        upsert_dotenv_secret(path, "NEW", "val")
+        text = path.read_text()
+        assert "# my secrets" in text and "EXISTING=keep" in text and "NEW=val" in text
+
+    def test_quotes_values_needing_it(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        upsert_dotenv_secret(path, "SP", "a b")
+        assert 'SP="a b"' in path.read_text()
+        ref = SecretRef.from_config({"type": "dotenv", "name": "SP", "scope": "tenant"})
+        assert resolve(ref, home=tmp_path) == "a b"  # reader unwraps
+
+    def test_rejects_bad_key(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        for bad in ("", "has space", "has=eq"):
+            with pytest.raises(ValueError):
+                upsert_dotenv_secret(path, bad, "v")
+
+    def test_rejects_unroundtrippable_value(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        with pytest.raises(ValueError):
+            upsert_dotenv_secret(path, "K", "has\nnewline")
+        with pytest.raises(ValueError):
+            upsert_dotenv_secret(path, "K", 'has"quote')
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits")
+    def test_written_0600_dir_0700(self, tmp_path):
+        path = tenant_secrets_path(tmp_path)
+        upsert_dotenv_secret(path, "K", "v")
+        assert (path.stat().st_mode & 0o777) == 0o600
+        assert (path.parent.stat().st_mode & 0o777) == 0o700
