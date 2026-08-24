@@ -252,54 +252,80 @@ def _report(name="gh-api", status="ok", checked_at="2026-08-24T17:00:00+00:00"):
     )
 
 
+PROG = "example"
+
+
 class TestReportStore:
-    def test_path_is_program_root_json(self, tmp_path):
-        assert report_store_path(tmp_path) == tmp_path / "connection-checks.json"
+    def test_path_is_tenant_home_json(self, tmp_path):
+        # cli-agent's frozen contract: ~/.otaman/connection-checks.json (tenant home)
+        assert report_store_path(tmp_path) == tmp_path / ".otaman" / "connection-checks.json"
 
     def test_persist_then_load_round_trips(self, tmp_path):
         path = report_store_path(tmp_path)
-        persist_reports([_report("a"), _report("b")], path)
-        loaded = load_reports(path)
+        persist_reports([_report("a"), _report("b")], path, PROG)
+        loaded = load_reports(path, PROG)
         assert set(loaded) == {"a", "b"}
         assert loaded["a"] == _report("a")
 
     def test_load_absent_is_empty(self, tmp_path):
-        assert load_reports(report_store_path(tmp_path)) == {}
+        assert load_reports(report_store_path(tmp_path), PROG) == {}
 
     def test_load_corrupt_is_empty(self, tmp_path):
         path = report_store_path(tmp_path)
+        path.parent.mkdir(parents=True)
         path.write_text("{not json")
-        assert load_reports(path) == {}
+        assert load_reports(path, PROG) == {}
+
+    def test_load_unknown_program_is_empty(self, tmp_path):
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a")], path, PROG)
+        assert load_reports(path, "other-program") == {}
 
     def test_persist_upserts_by_name_preserving_others(self, tmp_path):
         # `check <name>` updates one entry; siblings survive (spec: single check).
         path = report_store_path(tmp_path)
-        persist_reports([_report("a", status="ok"), _report("b", status="ok")], path)
-        persist_reports([_report("a", status="auth-failed")], path)
-        loaded = load_reports(path)
+        persist_reports([_report("a", status="ok"), _report("b", status="ok")], path, PROG)
+        persist_reports([_report("a", status="auth-failed")], path, PROG)
+        loaded = load_reports(path, PROG)
         assert loaded["a"].status == "auth-failed"  # updated
         assert loaded["b"].status == "ok"  # preserved
 
+    def test_persist_preserves_other_programs(self, tmp_path):
+        # One tenant file holds every program; writing one must not clobber others.
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a")], path, "prog-one")
+        persist_reports([_report("b")], path, "prog-two")
+        assert set(load_reports(path, "prog-one")) == {"a"}
+        assert set(load_reports(path, "prog-two")) == {"b"}
+
     def test_persist_creates_parent_dir(self, tmp_path):
-        path = tmp_path / "nested" / "dir" / "connection-checks.json"
-        persist_reports([_report("a")], path)
+        path = tmp_path / "nested" / "dir" / ".otaman" / "connection-checks.json"
+        persist_reports([_report("a")], path, PROG)
         assert path.is_file()
 
-    def test_store_carries_version_and_no_value_fields(self, tmp_path):
+    def test_store_carries_version_and_program_key_no_values(self, tmp_path):
         import json as _json
 
         path = report_store_path(tmp_path)
-        persist_reports([_report("a")], path)
+        persist_reports([_report("a")], path, PROG)
         raw = _json.loads(path.read_text())
         assert raw["version"] == 1
+        assert PROG in raw["programs"]
         # values-free: no serialized field name hints at a secret value
         blob = path.read_text().lower()
         assert "secret_value" not in blob and "private_key" not in blob
+
+    @pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX mode bits")
+    def test_store_written_0600(self, tmp_path):
+        path = report_store_path(tmp_path)
+        persist_reports([_report("a")], path, PROG)
+        assert (path.stat().st_mode & 0o777) == 0o600
 
     def test_load_ignores_unknown_fields(self, tmp_path):
         import json as _json
 
         path = report_store_path(tmp_path)
+        path.parent.mkdir(parents=True)
         rec = {
             "name": "a",
             "type": "api",
@@ -312,16 +338,17 @@ class TestReportStore:
             "checked_at": "2026-08-24T17:00:00+00:00",
             "future_field": "ignored",  # forward-compat
         }
-        path.write_text(_json.dumps({"version": 99, "reports": [rec]}))
-        loaded = load_reports(path)
+        path.write_text(_json.dumps({"version": 99, "programs": {PROG: [rec]}}))
+        loaded = load_reports(path, PROG)
         assert loaded["a"].name == "a"
 
     def test_load_skips_incomplete_records(self, tmp_path):
         import json as _json
 
         path = report_store_path(tmp_path)
-        path.write_text(_json.dumps({"version": 1, "reports": [{"name": "only-name"}]}))
-        assert load_reports(path) == {}
+        path.parent.mkdir(parents=True)
+        path.write_text(_json.dumps({"version": 1, "programs": {PROG: [{"name": "only-name"}]}}))
+        assert load_reports(path, PROG) == {}
 
 
 class TestRenderLastCheck:
@@ -332,9 +359,10 @@ class TestRenderLastCheck:
         assert render_last_check(None) == "—"
 
     def test_generator_join_flow(self, tmp_path):
-        # End-to-end: CLI persists, generator loads + joins on name, renders cell.
+        # End-to-end: CLI persists (program-keyed), generator loads for its program
+        # + joins on name, renders the cell.
         path = report_store_path(tmp_path)
-        persist_reports([_report("gh-api", status="ok")], path)
-        store = load_reports(path)
+        persist_reports([_report("gh-api", status="ok")], path, PROG)
+        store = load_reports(path, PROG)
         assert render_last_check(store.get("gh-api")) == "ok · 2026-08-24T17:00:00+00:00"
         assert render_last_check(store.get("never-checked")) == "—"  # fallback
