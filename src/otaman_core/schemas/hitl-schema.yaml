@@ -1,0 +1,58 @@
+# JSON Schema for the tenant-scope ~/.otaman/hitl.yaml (hitl-confirmation-adapters).
+#
+# Tenant scope owns the strong knobs: per-roster-human adapter enrollment and
+# the allow_insecure_chat_approval flag. Program scope (platform.yaml `hitl:`)
+# may only NARROW this (see platform-schema.yaml) — never weaken it.
+#
+# Values-never-exposed invariant: enrollment stores REFERENCES to secrets
+# (backend key names), never the TOTP secret or messenger token itself.
+
+type: object
+additionalProperties: false
+description: "Tenant-scope HITL confirmation-adapter configuration."
+
+properties:
+  allow_insecure_chat_approval:
+    type: boolean
+    default: false
+    description: >
+      Tenant-wide switch for the guarded insecure chat-approval fallback.
+      Default false. Honored only where a stronger adapter is NOT enrolled and
+      the tenant opted in. A program can never enable this (no-weakening).
+
+  enrollment:
+    type: object
+    description: >
+      Per-roster-human adapter enrollment, keyed by the human's email
+      (the human-roster canonical key). Absent human = TTY-only for them.
+    propertyNames:
+      minLength: 1
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      description: "One human's enrolled confirmation adapters (references only)."
+      properties:
+        totp_secret_ref:
+          type: string
+          description: >
+            Secret-backend key name holding this human's TOTP shared secret.
+            A REFERENCE — the secret value is never stored here or exposed.
+        messenger:
+          type: object
+          additionalProperties: false
+          description: "Messenger-adapter binding (e.g. Telegram) for this human."
+          properties:
+            adapter:
+              type: string
+              description: "Messenger adapter id (e.g. 'telegram')."
+            address_ref:
+              type: string
+              description: >
+                Secret-backend key name holding the messenger address/token.
+                A REFERENCE, never the value.
+        idp_subject:
+          type: string
+          description: >
+            Optional IdP subject binding (e.g. Zitadel `sub`). Lets a future
+            IdP-backed adapter slot in as a strength tier above TOTP without an
+            interface change.

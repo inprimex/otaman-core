@@ -186,6 +186,22 @@ def validate_builtin(config: dict[str, Any]) -> list[str]:
             if "format" not in comm:
                 errors.append("communication: missing required field 'format'")
 
+    # Validate hitl (optional, program scope) — no-weakening rule
+    # (hitl-confirmation-adapters 3.1). A program may narrow but never weaken
+    # the tenant ~/.otaman/hitl.yaml scope: enabling insecure chat approval is
+    # tenant-only, so program-scope `allow_insecure_chat_approval: true` is
+    # refused with the tenant scope named as the reason.
+    if "hitl" in config:
+        hitl = config["hitl"]
+        if not isinstance(hitl, dict):
+            errors.append("'hitl' must be a mapping")
+        elif hitl.get("allow_insecure_chat_approval") is True:
+            errors.append(
+                "hitl.allow_insecure_chat_approval is tenant-only "
+                "(~/.otaman/hitl.yaml); a program cannot enable insecure chat "
+                "approval (no-weakening rule)"
+            )
+
     return errors
 
 
