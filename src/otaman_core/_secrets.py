@@ -4,9 +4,15 @@ Resolves secret references declared in launch-settings.yaml (and later
 platform.yaml) through a tiered source chain:
 
     1. Process env  — variable already set in the shell
-    2. dotenv       — .otaman/secrets.env (gitignored, mode 0600)
+    2. dotenv       — secrets.env (gitignored, mode 0600); workspace scope
+                      (<root>/.otaman/secrets.env) or tenant scope
+                      (~/.otaman/secrets.env) via ``scope: tenant`` on the ref
     3. keyring      — OS keychain via the keyring package (optional dep)
     4. (post-v1)    — vault / aws-sm / gcp-sm / azure-kv
+
+The chain is READ-only. The single write path is ``upsert_dotenv_secret`` —
+used by enroll-time commands (e.g. hitl TOTP) to persist a generated secret to
+a dotenv store; the reader sources never mutate.
 
 YAML shape accepted (backwards-compatible short form first):
 
@@ -91,10 +97,16 @@ class EnvSource:
 
 
 class DotenvSource:
-    """Read from .otaman/secrets.env in the otaman workspace root.
+    """Read from a ``secrets.env`` dotenv (0600).
 
-    Falls back to .maestro/secrets.env (legacy: removed at 1.0) when
-    .otaman/secrets.env is absent.
+    Two scopes, selected by ``scope`` on the spec:
+      - ``workspace`` (default): ``<maestro_root>/.otaman/secrets.env`` — the
+        per-workspace store; falls back to ``.maestro/secrets.env`` (legacy,
+        removed at 1.0).
+      - ``tenant``: ``~/.otaman/secrets.env`` — the per-OS-user store, alongside
+        ``hitl.yaml``/``edition.yaml``. Used by tenant-scoped refs such as a
+        human's TOTP seed (``hitl.yaml`` ``enrollment[<email>].totp_secret_ref``),
+        written at enrollment via :func:`upsert_dotenv_secret`.
     """
 
     type_name = "dotenv"
@@ -103,6 +115,11 @@ class DotenvSource:
         name = spec.get("name")
         if not name:
             return None
+        if spec.get("scope") == "tenant":
+            dotenv_path = tenant_secrets_path(context.get("home"))
+            if not dotenv_path.is_file():
+                return None
+            return _read_dotenv_value(dotenv_path, name)
         maestro_root = context.get("maestro_root")  # legacy: key renamed otaman_root at 1.0
         if not maestro_root:
             return None
@@ -188,6 +205,75 @@ def load_dotenv(maestro_root: Path | str) -> dict[str, str]:  # legacy: paramete
     return out
 
 
+def tenant_secrets_path(home: Path | str | None = None) -> Path:
+    """The tenant dotenv store: ``~/.otaman/secrets.env`` (``home`` injectable)."""
+    base = Path(home) if home else Path.home()
+    return base / ".otaman" / "secrets.env"
+
+
+def _render_dotenv_value(value: str) -> str:
+    """Render a value for a ``KEY=`` line, round-trippable by ``_read_dotenv_value``.
+
+    Quotes only when needed (whitespace / ``#`` / empty). Raises on values the
+    minimal reader cannot round-trip (embedded newline or double-quote).
+    """
+    if "\n" in value or "\r" in value:
+        raise ValueError("dotenv value cannot contain a newline")
+    if '"' in value:
+        raise ValueError("dotenv value cannot contain a double-quote")
+    needs_quote = value == "" or value != value.strip() or " " in value or "#" in value
+    return f'"{value}"' if needs_quote else value
+
+
+def upsert_dotenv_secret(path: Path, key: str, value: str) -> None:
+    """Insert or update ``KEY=value`` in a dotenv file; atomic, 0600, preserving
+    every other key, comment, and blank line.
+
+    The write path for enroll-time secrets (e.g. a human's TOTP seed) — the READER
+    sources above never mutate; this is the sole, format-owning writer so callers
+    don't hand-roll dotenv escaping. The value touches disk only (0600) and is
+    never returned or logged (Q5: values never reach agent context/bus). The
+    parent dir is created 0700.
+    """
+    if not key or "=" in key or any(c.isspace() for c in key):
+        raise ValueError(f"invalid dotenv key: {key!r}")
+    rendered = f"{key}={_render_dotenv_value(value)}"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:  # pragma: no cover - non-POSIX
+        pass
+
+    existing: list[str] = []
+    if path.is_file():
+        try:
+            existing = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            existing = []
+
+    out: list[str] = []
+    replaced = False
+    for raw in existing:
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            if stripped.partition("=")[0].strip() == key:
+                out.append(rendered)
+                replaced = True
+                continue
+        out.append(raw)
+    if not replaced:
+        out.append(rendered)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:  # pragma: no cover - non-POSIX
+        pass
+    os.replace(tmp, path)
+
+
 _BUILTIN_SOURCES: dict[str, SecretSource] = {
     "env": EnvSource(),
     "dotenv": DotenvSource(),
@@ -204,13 +290,17 @@ def resolve(
     ref: SecretRef,
     *,
     maestro_root: Path | str | None = None,
+    home: Path | str | None = None,
 ) -> str | None:
     """Walk the source chain; first non-empty value wins.
 
-    Returns None if no source supplies a value.
+    ``home`` overrides the tenant home for ``scope: tenant`` dotenv refs
+    (defaults to ``Path.home()``); injectable for tests. Returns None if no
+    source supplies a value.
     """
     context: dict[str, Any] = {
         "maestro_root": Path(maestro_root) if maestro_root else None,
+        "home": Path(home) if home else None,
     }
     for spec in ref.sources:
         source_type = spec.get("type")
@@ -229,9 +319,10 @@ def resolve_or_fail(
     ref: SecretRef,
     *,
     maestro_root: Path | str | None = None,
+    home: Path | str | None = None,
 ) -> str:
     """Resolve or raise a descriptive error naming every source tried."""
-    value = resolve(ref, maestro_root=maestro_root)
+    value = resolve(ref, maestro_root=maestro_root, home=home)
     if value:
         return value
     tried = ", ".join(_describe_source(s) for s in ref.sources) or "(no sources configured)"
