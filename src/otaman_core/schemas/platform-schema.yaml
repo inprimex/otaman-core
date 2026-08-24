@@ -773,6 +773,22 @@ properties:
           program scope is rejected by validate_platform (no-weakening rule).
 
   # ---------------------------------------------------------------------------
+  # pluggable-secret-backend (owner) + agent-credential-access (reader)
+  #
+  # Shared key, declared here so the two changes never collide at schema level
+  # (agent-credential-access 4.1). `secret_backend:` selects/configures the
+  # secret STORAGE backend (owned by pluggable-secret-backend); the credential/
+  # connections layer only READS it (list_keys) and never stores values.
+  # Permissive — the concrete backend config shape evolves with that change.
+  # May also appear in org.yaml at org scope (same shape, cascade).
+  secret_backend:
+    type: object
+    additionalProperties: true
+    description: >
+      Secret storage backend selection/config (pluggable-secret-backend).
+      The credential/connections layer reads this, never replaces it.
+
+  # ---------------------------------------------------------------------------
   # ce-org-agent-bootstrap / ce-bootstrap-harness-deps
   #
   # Top-level `runner:` carries runner-side bootstrap config: agent_bootstrap

@@ -1,0 +1,53 @@
+# JSON Schema for connections.yaml (agent-credential-access).
+#
+# Connections are first-class objects an agent consumes ("how do I reach + auth
+# to X"). They live in their OWN connections.yaml per scope (tenant / org /
+# program), SEPARATE from secret config (secret_backend:), to keep the
+# values-vs-locations boundary crisp. The tenant→org→program cascade merges
+# per connection name; the nearest scope wins (see otaman_core connections
+# resolver, task 1.1).
+#
+# Values-never-exposed invariant (Q5): a connection stores `secret_ref` (a
+# backend key NAME) and `ssh_ref` (a Host alias / socket handle) — NEVER a
+# secret value.
+
+type: object
+additionalProperties: false
+description: "A scope's connection inventory (connections.yaml)."
+
+properties:
+  connections:
+    type: array
+    description: "The connections defined at this scope."
+    items:
+      type: object
+      additionalProperties: false
+      required: [name, type, endpoint]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{1,63}$"
+          description: 'Connection identifier, e.g. "github-primary", "sunflowers-ssh".'
+        type:
+          type: string
+          description: >
+            Connection type. Well-known values: git-https, ssh, api, pat,
+            deploy-key, api-key, oauth, ssh-key. Open (manage-not-guess: on
+            create Otaman proposes, the human confirms) — not a closed enum.
+        endpoint:
+          type: string
+          description: "Host or base URL the connection reaches (e.g. github.com)."
+        secret_ref:
+          type: string
+          description: >
+            Secret-backend key NAME this connection authenticates with — a
+            REFERENCE resolved at the call site, NEVER the secret value.
+        ssh_ref:
+          type: string
+          description: >
+            SSH Host alias (~/.ssh/config) + socket handle, when type=ssh.
+            A locator, never a key value.
+        scope:
+          type: string
+          enum: [tenant, org, program]
+          description: "The cascade scope this connection belongs to."
