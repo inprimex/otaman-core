@@ -210,6 +210,50 @@ def tenant_secrets_path(home: Path | str | None = None) -> Path:
     return base / ".otaman" / "secrets.env"
 
 
+def _dotenv_keys(path: Path) -> set[str]:
+    """The KEY names in a dotenv file (values-free; empty if absent/unreadable)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    keys: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key = line.partition("=")[0].strip()
+        if key:
+            keys.add(key)
+    return keys
+
+
+def list_keys(
+    *,
+    maestro_root: Path | str | None = None,
+    home: Path | str | None = None,
+) -> set[str]:
+    """Enumerate the NAMES of secrets available in the dotenv backend — VALUES-FREE.
+
+    The ``list_keys()`` seam that ``connections.missing_secret_refs`` and
+    ``otaman connection list`` (cli 3.1) consume to badge which ``secret_ref``s
+    have a backing key. Reader-on-top / no new storage: it reads key names only,
+    NEVER values (Q5), from the workspace dotenv (``<maestro_root>/.otaman/
+    secrets.env``, when ``maestro_root`` given) unioned with the tenant dotenv
+    (``~/.otaman/secrets.env``).
+
+    The ``env`` and ``keyring`` sources are name-targeted (not enumerable), so
+    they do not contribute — the dotenv store is the enumerable default backend.
+    """
+    keys: set[str] = set()
+    if maestro_root is not None:
+        ws = Path(maestro_root) / ".otaman" / "secrets.env"
+        if not ws.is_file():
+            ws = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback
+        keys |= _dotenv_keys(ws)
+    keys |= _dotenv_keys(tenant_secrets_path(home))
+    return keys
+
+
 def _render_dotenv_value(value: str) -> str:
     """Render a value for a ``KEY=`` line, round-trippable by ``_read_dotenv_value``.
 

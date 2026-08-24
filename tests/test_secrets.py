@@ -13,6 +13,7 @@ from otaman_core._secrets import (
     EnvSource,
     KeyringSource,
     SecretRef,
+    list_keys,
     load_dotenv,
     register_source,
     resolve,
@@ -336,3 +337,44 @@ class TestUpsertDotenvSecret:
         upsert_dotenv_secret(path, "K", "v")
         assert (path.stat().st_mode & 0o777) == 0o600
         assert (path.parent.stat().st_mode & 0o777) == 0o700
+
+
+class TestListKeys:
+    """The values-free `list_keys()` seam that `otaman connection list` (cli 3.1)
+    and `connections.missing_secret_refs` consume to badge backing keys."""
+
+    def test_empty_when_no_stores(self, tmp_path):
+        assert list_keys(home=tmp_path) == set()
+
+    def test_enumerates_workspace_keys(self, tmp_path, maestro_root):
+        (maestro_root / ".otaman").mkdir()
+        (maestro_root / ".otaman" / "secrets.env").write_text("GH_PAT=x\nAPI_KEY=y\n# c\n")
+        keys = list_keys(maestro_root=maestro_root, home=tmp_path)
+        assert keys == {"GH_PAT", "API_KEY"}
+
+    def test_enumerates_tenant_keys(self, tmp_path):
+        upsert_dotenv_secret(tenant_secrets_path(tmp_path), "HITL_TOTP_roman", "seed")
+        assert list_keys(home=tmp_path) == {"HITL_TOTP_roman"}
+
+    def test_unions_workspace_and_tenant(self, tmp_path, maestro_root):
+        (maestro_root / ".otaman").mkdir()
+        (maestro_root / ".otaman" / "secrets.env").write_text("WS_KEY=1\n")
+        upsert_dotenv_secret(tenant_secrets_path(tmp_path), "TENANT_KEY", "2")
+        assert list_keys(maestro_root=maestro_root, home=tmp_path) == {"WS_KEY", "TENANT_KEY"}
+
+    def test_returns_names_only_never_values(self, tmp_path):
+        upsert_dotenv_secret(tenant_secrets_path(tmp_path), "SECRET_K", "s3cr3t-value")
+        keys = list_keys(home=tmp_path)
+        assert keys == {"SECRET_K"}
+        assert "s3cr3t-value" not in keys  # values never surface
+
+    def test_feeds_missing_secret_refs(self, tmp_path):
+        # The real consumer flow: connection inventory badges refs w/o backing keys.
+        from otaman_core.connections import Connection, missing_secret_refs
+
+        upsert_dotenv_secret(tenant_secrets_path(tmp_path), "gh-pat", "x")
+        conns = [
+            Connection("has-key", "api", "a", "program", secret_ref="gh-pat"),
+            Connection("no-key", "api", "b", "program", secret_ref="absent"),
+        ]
+        assert missing_secret_refs(conns, list_keys(home=tmp_path)) == ["no-key"]
