@@ -5,4 +5,4 @@ across the otaman-* repositories (the two-consumer rule from ADR-001). Code
 that only one repository needs stays in that repository.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
