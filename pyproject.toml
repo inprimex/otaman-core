@@ -15,8 +15,16 @@ dependencies = [
 [project.optional-dependencies]
 keyring = ["keyring>=24"]
 oidc = ["pyjwt[crypto]>=2.8"]
+web-auth = ["pyjwt[crypto]>=2.8", "bcrypt>=4"]
 wiki = ["tree-sitter>=0.25", "tree-sitter-python>=0.25"]
-test = ["pytest>=7", "keyring>=24", "tree-sitter>=0.25", "tree-sitter-python>=0.25"]
+test = [
+    "pytest>=7",
+    "keyring>=24",
+    "pyjwt[crypto]>=2.8",
+    "bcrypt>=4",
+    "tree-sitter>=0.25",
+    "tree-sitter-python>=0.25",
+]
 
 [dependency-groups]
 dev = [
