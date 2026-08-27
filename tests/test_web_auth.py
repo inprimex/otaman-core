@@ -83,6 +83,46 @@ class TestLogin:
         assert jwt.decode(token, _SECRET, algorithms=[_JWT_ALG])["role"] == "observer"
 
 
+class TestIssueSessionToken:
+    """Password-free session minting for the refresh flow (bridge 1.2 seam)."""
+
+    def test_mints_valid_session_jwt(self):
+        token = _make_manager().issue_session_token("alice")
+        claims = jwt.decode(token, _SECRET, algorithms=[_JWT_ALG])
+        assert claims["sub"] == "alice" and claims["type"] == "session"
+
+    def test_payload_matches_login(self):
+        mgr = _make_manager(session_ttl=100, role="admin")
+        from_login = jwt.decode(mgr.login("alice", "secret123"), _SECRET, algorithms=[_JWT_ALG])
+        from_refresh = jwt.decode(mgr.issue_session_token("alice"), _SECRET, algorithms=[_JWT_ALG])
+        # identical shape + values (modulo iat/exp timing) — same claim keys, role, ttl span
+        assert from_login.keys() == from_refresh.keys()
+        assert from_refresh["role"] == "admin"
+        assert from_refresh["exp"] - from_refresh["iat"] == 100
+
+    def test_unknown_user_raises(self):
+        with pytest.raises(AuthError, match="unknown user"):
+            _make_manager().issue_session_token("bob")
+
+    def test_disabled_auth_raises(self):
+        with pytest.raises(AuthError, match="disabled"):
+            _make_manager(enabled=False).issue_session_token("alice")
+
+    def test_role_reauthoritative_from_config(self):
+        # A minted token reflects the CURRENT config role, not a captured one.
+        mgr = _make_manager(role="observer")
+        claims = jwt.decode(mgr.issue_session_token("alice"), _SECRET, algorithms=[_JWT_ALG])
+        assert claims["role"] == "observer"
+
+    def test_minted_token_drives_attach_flow(self):
+        # End-to-end refresh: mint session -> exchange for attach, like the route.
+        mgr = _make_manager(role="developer")
+        session = mgr.issue_session_token("alice")
+        result = mgr.attach_token(session)
+        assert result["mode"] == "write"
+        assert mgr.verify_session_token(session)["sub"] == "alice"
+
+
 class TestAttachToken:
     def test_session_jwt_yields_attach_jwt(self):
         mgr = _make_manager()
