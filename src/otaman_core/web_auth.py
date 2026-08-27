@@ -186,6 +186,37 @@ class CeAuthManager:
         if not ok:
             raise AuthError("invalid credentials")
 
+        return self._issue_session_for(user)
+
+    def issue_session_token(self, username: str) -> str:
+        """Mint a session JWT for an already-authenticated user — no password.
+
+        The password-free counterpart to :meth:`login`, for the refresh flow:
+        the caller has already proven identity (e.g. a valid refresh token) but
+        no longer holds the password. The role is RE-LOOKED-UP from config so it
+        stays authoritative — a removed or disabled user makes this raise
+        ``AuthError`` (the caller returns 401 and falls back to the password
+        prompt, matching the revoked-token scenario). The payload is byte-for-byte
+        what ``login`` produces for the same user.
+
+        Raises:
+            AuthError: local auth disabled, or user unknown.
+        """
+        if not self._config.enabled:
+            raise AuthError("local auth is disabled")
+
+        user = self._find_user(username)
+        if user is None:
+            raise AuthError("unknown user")
+
+        return self._issue_session_for(user)
+
+    def _issue_session_for(self, user: UserRecord) -> str:
+        """Mint + sign the session JWT for ``user`` (shared by login / refresh).
+
+        Single source of the session-claim shape, so the password and
+        password-free paths cannot diverge.
+        """
         now = int(datetime.now(UTC).timestamp())
         payload = {
             "sub": user.username,
