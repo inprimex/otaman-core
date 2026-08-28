@@ -307,6 +307,23 @@ class TestCheckApproverConfig:
         findings = check_approver_config([], pending_proposals=True)
         assert findings and findings[0].level == "error"
 
+    def test_error_when_roster_empty_list(self):
+        # (b) an explicitly empty roster is "no approver" — ERROR fires.
+        findings = check_approver_config([], hitl_configured=True)
+        assert [f.level for f in findings] == ["error"]
+
+    def test_error_when_roster_block_absent(self, tmp_path: Path):
+        # (c) opt-out tenant: platform.yaml with NO human-roster block.
+        # load_human_roster -> [] -> the live path still has no approver -> ERROR.
+        # (Regression guard for deploy 3.2 E2E: doctor must flag absent rosters.)
+        p = tmp_path / "platform.yaml"
+        p.write_text("project: x\nversion: '1.0'\nrepos: []\n", encoding="utf-8")
+        roster = load_human_roster(p)
+        assert roster == []
+        findings = check_approver_config(roster, hitl_configured=True, pending_proposals=True)
+        assert [f.level for f in findings] == ["error"]
+        assert APPROVER_ROLE in findings[0].message
+
     def test_no_error_when_approver_present(self):
         roster = _roster({"name": "A", "email": "a@x.com", "roles": [APPROVER_ROLE]})
         findings = check_approver_config(roster, hitl_configured=True, pending_proposals=True)
