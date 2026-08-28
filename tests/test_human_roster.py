@@ -10,10 +10,16 @@ from pathlib import Path
 import pytest
 
 from otaman_core.human_roster import (
+    APPROVER_ROLE,
     ConfigError,
+    DoctorFinding,
     HumanRosterEntry,
+    check_approver_config,
+    is_approver,
     load_human_roster,
     parse_human_roster,
+    resolve_approver,
+    resolve_roster_human,
 )
 
 # ---------------------------------------------------------------------------
@@ -101,13 +107,16 @@ class TestParseErrors:
                 ]
             )
 
-    def test_missing_email_raises(self):
+    def test_missing_email_is_optional(self):
+        # hitl-default-approver D3: an approver enrolled from a non-email key
+        # comment parses with email=None (otaman doctor WARNs); no ConfigError.
+        (entry,) = parse_human_roster([{"name": "key-comment", "roles": [APPROVER_ROLE]}])
+        assert entry.email is None
+        assert entry.name == "key-comment"
+
+    def test_present_but_empty_email_raises(self):
         with pytest.raises(ConfigError, match="email"):
-            parse_human_roster(
-                [
-                    {"name": "Alice", "roles": ["cto"]},
-                ]
-            )
+            parse_human_roster([{"name": "Alice", "email": "", "roles": ["cto"]}])
 
     def test_missing_roles_raises(self):
         with pytest.raises(ConfigError, match="roles"):
@@ -230,3 +239,91 @@ class TestHumanRosterEntry:
         e = HumanRosterEntry(name="A", email="a@x.com", roles=["cto"])
         with pytest.raises(AttributeError):
             e.name = "B"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# approver role model (hitl-default-approver 1.1)
+
+
+def _roster(*entries: dict) -> list[HumanRosterEntry]:
+    return parse_human_roster(list(entries))
+
+
+class TestResolveRosterHuman:
+    def test_resolves_by_name_case_insensitive(self):
+        roster = _roster({"name": "Ana", "email": "a@x.com", "roles": [APPROVER_ROLE]})
+        assert resolve_roster_human(roster, "ana").name == "Ana"
+        assert resolve_roster_human(roster, "ANA").name == "Ana"
+
+    def test_resolves_by_name_slug(self):
+        roster = _roster({"name": "Jane Doe", "email": "j@x.com", "roles": ["developer"]})
+        assert resolve_roster_human(roster, "jane-doe").name == "Jane Doe"
+
+    def test_resolves_by_email_and_local_part(self):
+        roster = _roster({"name": "X", "email": "guest@x.com", "roles": ["developer"]})
+        assert resolve_roster_human(roster, "guest@x.com").name == "X"
+        assert resolve_roster_human(roster, "guest").name == "X"
+
+    def test_unresolved_returns_none(self):
+        roster = _roster({"name": "Ana", "email": "a@x.com", "roles": [APPROVER_ROLE]})
+        assert resolve_roster_human(roster, "nobody") is None
+        assert resolve_roster_human(roster, "") is None
+        assert resolve_roster_human(roster, None) is None
+
+    def test_email_optional_entry_resolves_by_name(self):
+        roster = _roster({"name": "key-comment", "roles": [APPROVER_ROLE]})
+        assert resolve_roster_human(roster, "key-comment").email is None
+
+
+class TestIsApproverAndResolveApprover:
+    def test_is_approver(self):
+        assert is_approver(HumanRosterEntry("A", "a@x.com", [APPROVER_ROLE, "cto"])) is True
+        assert is_approver(HumanRosterEntry("A", "a@x.com", ["developer"])) is False
+
+    def test_arbitrary_roles_still_accepted(self):
+        # approver coexists with any additional role strings, unchanged.
+        (entry,) = _roster({"name": "A", "email": "a@x.com", "roles": ["cofounder", APPROVER_ROLE]})
+        assert entry.roles == ["cofounder", "approver"]
+        assert is_approver(entry)
+
+    def test_resolve_approver_returns_entry_only_when_approver(self):
+        roster = _roster(
+            {"name": "Ana", "email": "a@x.com", "roles": [APPROVER_ROLE]},
+            {"name": "Guest", "email": "g@x.com", "roles": ["developer"]},
+        )
+        assert resolve_approver(roster, "ana").name == "Ana"
+        assert resolve_approver(roster, "guest") is None  # resolves but not approver
+        assert resolve_approver(roster, "nobody") is None  # unresolved
+
+
+class TestCheckApproverConfig:
+    def test_error_when_hitl_configured_and_no_approver(self):
+        roster = _roster({"name": "A", "email": "a@x.com", "roles": ["developer"]})
+        findings = check_approver_config(roster, hitl_configured=True)
+        assert [f.level for f in findings] == ["error"]
+        assert APPROVER_ROLE in findings[0].message
+
+    def test_error_when_pending_proposals_and_no_approver(self):
+        findings = check_approver_config([], pending_proposals=True)
+        assert findings and findings[0].level == "error"
+
+    def test_no_error_when_approver_present(self):
+        roster = _roster({"name": "A", "email": "a@x.com", "roles": [APPROVER_ROLE]})
+        findings = check_approver_config(roster, hitl_configured=True, pending_proposals=True)
+        assert [f for f in findings if f.level == "error"] == []
+
+    def test_no_error_when_path_not_live(self):
+        # No HITL adapters and no pending proposals -> nothing to action -> no error.
+        assert check_approver_config([], hitl_configured=False, pending_proposals=False) == []
+
+    def test_warn_on_approver_missing_email(self):
+        roster = _roster({"name": "key-comment", "roles": [APPROVER_ROLE]})
+        findings = check_approver_config(roster, hitl_configured=True)
+        # approver exists (no error) but has no email (warn)
+        assert [f.level for f in findings] == ["warn"]
+        assert "key-comment" in findings[0].message
+
+    def test_finding_is_frozen_dataclass(self):
+        f = DoctorFinding("warn", "m")
+        with pytest.raises(AttributeError):
+            f.level = "error"  # type: ignore[misc]

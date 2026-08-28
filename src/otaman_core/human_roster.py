@@ -20,9 +20,16 @@ Typical platform.yaml shape::
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+#: The well-known roster role that grants "may work with proposals" — approve
+#: spec-change-requests and take HITL review requests (hitl-default-approver).
+#: The single authoritative grant: neither ``terminal.users`` RBAC nor onboarding
+#: labels confer it. The roster still accepts arbitrary additional role strings.
+APPROVER_ROLE = "approver"
 
 
 @dataclass(frozen=True)
@@ -31,11 +38,14 @@ class HumanRosterEntry:
 
     ``pm_user_id`` is None until resolved by ``otaman pm init --roster``.
     ``roles`` is a non-empty list of role tags (e.g., 'cofounder', 'cto',
-    'cpo', 'developer'). The loader rejects empty roles.
+    'cpo', 'developer', 'approver'). The loader rejects empty roles.
+    ``email`` is optional: provisioning may enrol a day-one approver from an
+    SSH-key comment that is not an email (``otaman doctor`` then WARNs), so a
+    live approval path beats a dead one (hitl-default-approver D3).
     """
 
     name: str
-    email: str
+    email: str | None = None
     roles: list[str] = field(default_factory=list)
     pm_user_id: int | None = None
 
@@ -75,9 +85,12 @@ def _coerce_entry(raw: Any, index: int) -> HumanRosterEntry:
         raise ConfigError(
             f"human-roster[{index}]: 'name' is required and must be a non-empty string"
         )
-    if not isinstance(email, str) or not email:
+    # ``email`` is OPTIONAL (hitl-default-approver D3): omitted -> None. When
+    # present it must be a non-empty string. ``otaman doctor`` WARNs on an
+    # approver entry with no email; provisioning never fails for want of one.
+    if email is not None and (not isinstance(email, str) or not email):
         raise ConfigError(
-            f"human-roster entry {label}: 'email' is required and must be a non-empty string"
+            f"human-roster entry {label}: 'email' must be a non-empty string when present"
         )
     if not isinstance(roles_raw, list):
         raise ConfigError(
@@ -147,9 +160,143 @@ def load_human_roster(platform_yaml_path: Path) -> list[HumanRosterEntry]:
     return parse_human_roster(data.get("human-roster"))
 
 
+# --- approver role: OTAMAN_HUMAN -> entry resolution (hitl-default-approver 1.1) ---
+#
+# The single eligibility primitive that cli-agent's step 2 builds on: BOTH the
+# HITL actor path and console spec-approval resolve the same entry and check the
+# same role, so "may confirm" and "may approve" cannot drift.
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+
+
+def _identity_candidates(entry: HumanRosterEntry) -> set[str]:
+    """The lowercased identities an ``OTAMAN_HUMAN`` value may match this entry by.
+
+    Covers name, a slug of the name, the email, and the email local-part — so a
+    roster-id derived by provisioning (from a name or an email-shaped key
+    comment) resolves regardless of which form it took.
+    """
+    cands: set[str] = set()
+    if entry.name:
+        cands.add(entry.name.strip().lower())
+        cands.add(_slug(entry.name))
+    if entry.email:
+        cands.add(entry.email.strip().lower())
+        cands.add(entry.email.split("@", 1)[0].strip().lower())
+    return {c for c in cands if c}
+
+
+def resolve_roster_human(
+    roster: list[HumanRosterEntry], otaman_human: str | None
+) -> HumanRosterEntry | None:
+    """Resolve the roster entry for an ``OTAMAN_HUMAN`` identity, or ``None``.
+
+    Matches case-insensitively against the entry's name / name-slug / email /
+    email local-part. Returns the first matching entry; ``None`` when the
+    identity is empty or unresolved (callers keep today's unverified behavior on
+    ``None`` rather than refusing).
+    """
+    if not otaman_human or not otaman_human.strip():
+        return None
+    key = otaman_human.strip().lower()
+    for entry in roster:
+        if key in _identity_candidates(entry):
+            return entry
+    return None
+
+
+def is_approver(entry: HumanRosterEntry) -> bool:
+    """True if ``entry`` carries the well-known :data:`APPROVER_ROLE`."""
+    return APPROVER_ROLE in entry.roles
+
+
+def resolve_approver(
+    roster: list[HumanRosterEntry], otaman_human: str | None
+) -> HumanRosterEntry | None:
+    """Resolve the approver entry for an ``OTAMAN_HUMAN`` id.
+
+    Returns the entry only when it resolves AND holds :data:`APPROVER_ROLE`;
+    ``None`` otherwise. Callers that must distinguish "unresolved" (unchanged
+    behavior) from "resolved but not an approver" (refuse, naming the role)
+    should use :func:`resolve_roster_human` + :func:`is_approver` directly.
+    """
+    entry = resolve_roster_human(roster, otaman_human)
+    return entry if entry is not None and is_approver(entry) else None
+
+
+# --- doctor checks (hitl-default-approver 1.2) ---
+
+
+@dataclass(frozen=True)
+class DoctorFinding:
+    """One doctor result. ``level`` is ``"error"`` or ``"warn"``."""
+
+    level: str
+    message: str
+
+
+def check_approver_config(
+    roster: list[HumanRosterEntry],
+    *,
+    hitl_configured: bool = False,
+    pending_proposals: bool = False,
+) -> list[DoctorFinding]:
+    """Doctor checks for the approver grant.
+
+    - ERROR when the approval path is live (``hitl_configured`` OR
+      ``pending_proposals``) but no roster entry holds :data:`APPROVER_ROLE` —
+      proposals and HITL requests cannot be actioned.
+    - WARN for each approver entry missing ``email`` (degrades pm-sync assignee
+      resolution + approver notifications).
+
+    Returns findings in order (error first, then per-entry warns); empty when
+    healthy. The caller (``otaman doctor``) renders them.
+    """
+    findings: list[DoctorFinding] = []
+    approvers = [e for e in roster if is_approver(e)]
+
+    if (hitl_configured or pending_proposals) and not approvers:
+        why = " and ".join(
+            r
+            for r in (
+                "HITL adapters are configured" if hitl_configured else "",
+                "pending proposals exist" if pending_proposals else "",
+            )
+            if r
+        )
+        findings.append(
+            DoctorFinding(
+                "error",
+                f"{why} but no human-roster entry holds the '{APPROVER_ROLE}' role — "
+                "spec-change-requests and HITL confirmations cannot be actioned; add "
+                f"roles: [{APPROVER_ROLE}] to a roster entry",
+            )
+        )
+
+    for entry in approvers:
+        if not entry.email:
+            findings.append(
+                DoctorFinding(
+                    "warn",
+                    f"human-roster approver entry {entry.name!r} has no email — pm-sync "
+                    "assignee resolution and approver notifications are degraded; add an email",
+                )
+            )
+
+    return findings
+
+
 __all__ = [
+    "APPROVER_ROLE",
     "ConfigError",
+    "DoctorFinding",
     "HumanRosterEntry",
-    "parse_human_roster",
+    "check_approver_config",
+    "is_approver",
     "load_human_roster",
+    "parse_human_roster",
+    "resolve_approver",
+    "resolve_roster_human",
 ]
