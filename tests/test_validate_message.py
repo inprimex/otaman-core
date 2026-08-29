@@ -155,6 +155,13 @@ class TestBroadcastWhitelist:
         )
         assert errors == []
 
+    def test_lifecycle_change_all_ok(self, tmp_path):
+        # program-lifecycle-states D4: audit broadcast, non-privileged (no from:human).
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="lifecycle-change"))
+        )
+        assert errors == []
+
     def test_info_all_invalid(self, tmp_path):
         errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="info")))
         assert any("all" in e for e in errors)
