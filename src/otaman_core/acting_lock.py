@@ -205,7 +205,7 @@ def acquire(
 
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]  # POSIX-only
     except OSError as exc:
         os.close(fd)
         raise ActingLockHeld(key, holder=_read_json(_info_path(path))) from exc
@@ -267,11 +267,11 @@ def probe(
         return None
     fd = os.open(path, os.O_RDWR)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]  # POSIX-only
     except OSError:
         return _read_json(_info_path(path))  # held by someone live
     else:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        fcntl.flock(fd, fcntl.LOCK_UN)  # type: ignore[attr-defined]  # POSIX-only
         return None
     finally:
         os.close(fd)
