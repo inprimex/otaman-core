@@ -47,6 +47,7 @@ except ImportError:
 #       - contract-change
 #       - emergency-halt
 #       - agent-registry-change
+#       - lifecycle-change
 #     Any other type using `to: all` triggers a validation error.
 #
 #   expects-response: true | false
@@ -115,6 +116,11 @@ VALID_TYPES = {
     "solution-recommendation",
     # outcome-proposal-routing
     "outcome-proposal",
+    # program-lifecycle-states D4 — audit broadcast of a program state transition.
+    # Informational, NOT privileged: the transition itself is authority-gated in
+    # the `otaman program …` command (approver role / tier / HITL); this message
+    # only records {program, from_state, to_state, actor, reason?}.
+    "lifecycle-change",
 }
 
 # Privileged types: these assert that a human made a decision. Forging one
@@ -154,7 +160,9 @@ _RFC3339_RE = re.compile(
 )
 
 
-_BROADCAST_TYPES = frozenset({"contract-change", "emergency-halt", "agent-registry-change"})
+_BROADCAST_TYPES = frozenset(
+    {"contract-change", "emergency-halt", "agent-registry-change", "lifecycle-change"}
+)
 _REPLY_TO_PATTERN = re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
 
 
