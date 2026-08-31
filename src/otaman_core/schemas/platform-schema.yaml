@@ -788,6 +788,24 @@ properties:
       Secret storage backend selection/config (pluggable-secret-backend).
       The credential/connections layer reads this, never replaces it.
 
+  pm-sync:
+    type: object
+    additionalProperties: true   # provider-specific keys evolve; permissive
+    description: >
+      PM-tool sync configuration (pm-sync-adapter). Loaded by
+      otaman_core.pm_sync.load_pm_sync_config.
+    properties:
+      agent_identification:
+        type: string
+        enum: [subject-prefix, custom-field, both]
+        default: both
+        description: >
+          How the acting agent is identified on synced PM issues (B5 ruling):
+          'subject-prefix' = "[<change>][<agent-name>] <title>", agent in the
+          subject only; 'custom-field' = "[<change>] <title>" with the agent in
+          the otaman-agent custom field only; 'both' (default) = subject prefix
+          AND custom field.
+
   # ---------------------------------------------------------------------------
   # ce-org-agent-bootstrap / ce-bootstrap-harness-deps
   #

@@ -283,6 +283,32 @@ class TestLoadPmSyncConfig:
         assert result.exclude_repos == ["otaman-docs"]
         assert result.webhook_target == "https://hooks.otaman.io/pm"
         assert result.project_map == {"otaman-core": 12, "otaman-plugin": 17}
+        # agent_identification defaults to "both" when the key is absent (B5).
+        assert result.agent_identification == "both"
+
+    def _load_with_agent_id(self, tmp_path, value: str | None):
+        block = "pm-sync:\n  provider: redmine\n"
+        if value is not None:
+            block += f"  agent_identification: {value}\n"
+        p = tmp_path / "platform.yaml"
+        p.write_text(block, encoding="utf-8")
+        return pm.load_pm_sync_config(p)
+
+    def test_agent_identification_default_when_absent(self, tmp_path):
+        assert self._load_with_agent_id(tmp_path, None).agent_identification == "both"
+
+    def test_agent_identification_reads_each_mode(self, tmp_path):
+        for mode in pm.AGENT_IDENTIFICATION_MODES:
+            assert self._load_with_agent_id(tmp_path, mode).agent_identification == mode
+
+    def test_agent_identification_invalid_falls_back_to_both(self, tmp_path):
+        # loader stays lenient; the schema flags the bad value loudly instead
+        assert self._load_with_agent_id(tmp_path, "galaxy").agent_identification == "both"
+
+    def test_agent_identification_hyphen_alias_accepted(self, tmp_path):
+        p = tmp_path / "platform.yaml"
+        p.write_text("pm-sync:\n  provider: redmine\n  agent-identification: custom-field\n")
+        assert pm.load_pm_sync_config(p).agent_identification == "custom-field"
 
     def test_returns_none_on_invalid_yaml(self, tmp_path):
         p = tmp_path / "platform.yaml"
@@ -417,3 +443,48 @@ class TestPmSyncConfigCustomFields:
             tracker="Task",
         )
         assert cfg.custom_fields is None
+
+
+# ---------------------------------------------------------------------------
+# pm-sync.agent_identification schema enum (B5 ruling) — validated loudly by the schema
+
+
+class TestAgentIdentificationSchema:
+    def _validator(self):
+        import pathlib
+
+        jsonschema = pytest.importorskip("jsonschema")
+        import yaml
+
+        schema_path = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "src"
+            / "otaman_core"
+            / "schemas"
+            / "platform-schema.yaml"
+        )
+        with open(schema_path, encoding="utf-8") as f:
+            return jsonschema.Draft7Validator(yaml.safe_load(f))
+
+    def _cfg(self, **pm_sync):
+        return {
+            "project": "example",
+            "version": "1.0",
+            "repos": [{"name": "repo-a", "path": "../repo-a", "owner": "agent-a"}],
+            "pm-sync": pm_sync,
+        }
+
+    def test_valid_modes_pass(self):
+        v = self._validator()
+        for mode in pm.AGENT_IDENTIFICATION_MODES:
+            assert list(v.iter_errors(self._cfg(agent_identification=mode))) == []
+
+    def test_invalid_mode_rejected(self):
+        v = self._validator()
+        errs = list(v.iter_errors(self._cfg(agent_identification="galaxy")))
+        assert errs, "invalid agent_identification must fail schema validation"
+
+    def test_pm_sync_block_now_allowed_top_level(self):
+        # regression: pm-sync was previously undeclared under additionalProperties:false
+        v = self._validator()
+        assert list(v.iter_errors(self._cfg(provider="redmine"))) == []
