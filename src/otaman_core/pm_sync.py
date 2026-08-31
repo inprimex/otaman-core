@@ -30,6 +30,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+#: Valid ``pm-sync.agent_identification`` values (B5 ruling). Default ``both``.
+AGENT_IDENTIFICATION_MODES: tuple[str, ...] = ("subject-prefix", "custom-field", "both")
+DEFAULT_AGENT_IDENTIFICATION = "both"
+
 # ---------------------------------------------------------------------------
 # Capabilities
 
@@ -88,6 +92,14 @@ class PmSyncConfig:
     discovering field ids from ``/custom_fields.json``. Loaded from
     ``pm-sync.custom-fields`` in platform.yaml. None = let the adapter
     auto-discover at init time."""
+
+    agent_identification: str = "both"
+    """How the acting agent is identified on synced PM issues (B5 ruling).
+
+    One of :data:`AGENT_IDENTIFICATION_MODES` — ``subject-prefix`` (agent in the
+    subject prefix only), ``custom-field`` (agent in the ``otaman-agent`` custom
+    field only), or ``both`` (default). Loaded from ``pm-sync.agent_identification``.
+    The bridge composes the subject per this value; the adapter honors it."""
 
 
 @dataclass(frozen=True)
@@ -345,6 +357,14 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
     else:
         custom_fields = None
 
+    # agent_identification: enum-validated; an invalid/absent value falls back to
+    # the default (the loader stays lenient; the schema flags an invalid value
+    # loudly via `otaman doctor` / validate-platform).
+    ai_raw = _get("agent-identification", "agent_identification", DEFAULT_AGENT_IDENTIFICATION)
+    agent_identification = (
+        ai_raw if ai_raw in AGENT_IDENTIFICATION_MODES else DEFAULT_AGENT_IDENTIFICATION
+    )
+
     try:
         return PmSyncConfig(
             provider=str(_get("provider", "provider") or ""),
@@ -359,6 +379,7 @@ def load_pm_sync_config(platform_yaml_path: Path) -> PmSyncConfig | None:
             status_map=dict(_get("status-map", "status_map") or {}),
             tracker=str(_get("tracker", "tracker") or "Task"),
             custom_fields=custom_fields,
+            agent_identification=agent_identification,
         )
     except (TypeError, ValueError):
         return None
