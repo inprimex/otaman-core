@@ -205,6 +205,30 @@ class TestEffectivePolicy:
         assert eff.rules["owner_admission_required"] is True
         assert eff.rules["extra"] == 1
 
+    def test_shipped_narrow_only_enforced_without_ondisk_index(self, tmp_path):
+        # Footgun regression (plugin-agent 20260901T184202): with NO
+        # policy/index.yaml on disk, a repo override that loosens a shipped
+        # narrow-only rule must STILL be refused (shipped baseline applies).
+        _write_policy(tmp_path, "git", "standard", {"force_push_forbidden": True})
+        _write_policy(tmp_path, "git", "loose", {"force_push_forbidden": False})
+        cfg = {
+            "policies": {"git": "standard"},
+            "repos": [{"name": "r", "policies": {"git": "loose"}}],
+        }
+        # note: no _write_index(...) — index.yaml is absent
+        eff, viol = effective_policy(tmp_path, cfg, "git", repo="r")
+        assert eff.rules["force_push_forbidden"] is True
+        assert any(v.rule == "force_push_forbidden" for v in viol)
+
+    def test_effective_narrow_only_is_shipped_union_ondisk(self, tmp_path):
+        from otaman_core.policy import GIT_PACK_NARROW_ONLY, effective_narrow_only
+
+        # absent index -> shipped baseline still enforced
+        assert effective_narrow_only(tmp_path, "git") == GIT_PACK_NARROW_ONLY
+        # on-disk index ADDS a rule -> union (never drops a shipped one)
+        _write_index(tmp_path, {"git": {"narrow_only": ["extra_rule"]}})
+        assert effective_narrow_only(tmp_path, "git") == GIT_PACK_NARROW_ONLY | {"extra_rule"}
+
     def test_missing_nonstandard_policy_raises(self, tmp_path):
         cfg = {"policies": {"git": "ghost"}}
         with pytest.raises(PolicyError, match="not found"):

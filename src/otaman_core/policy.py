@@ -280,6 +280,22 @@ def select_policy_names(
     return out
 
 
+def effective_narrow_only(meta_root: Path, pack: str) -> frozenset[str]:
+    """The narrow-only rule set enforced for ``pack``: the shipped baseline UNION
+    whatever the program's ``policy/index.yaml`` adds.
+
+    The shipped baseline (from :func:`shipped_index`) is ALWAYS enforced — even
+    before ``policy/index.yaml`` is materialized on disk. Without this, a fresh
+    program (no index yet) would resolve an EMPTY narrow-only set, letting a
+    repo/agent override silently loosen ``force_push_forbidden`` etc. with no
+    violation recorded (footgun found by plugin-agent building 2.2). A program
+    may only ADD narrow-only rules, never drop a shipped one.
+    """
+    on_disk = load_policy_index(meta_root).narrow_only(pack)
+    shipped = shipped_index().narrow_only(pack)
+    return on_disk | shipped
+
+
 def effective_policy(
     meta_root: Path,
     platform_config: Mapping[str, Any],
@@ -292,10 +308,11 @@ def effective_policy(
 
     cli (verbs, merge guard) and plugin (generation) call this. A selected policy
     that is missing on disk falls back to the shipped standard for the pack (so a
-    fresh program with only ``policies: {git: standard}`` still resolves).
+    fresh program with only ``policies: {git: standard}`` still resolves). The
+    narrow-only protection uses the shipped baseline even when no on-disk index
+    exists yet, so a first-ever run cannot silently loosen a shipped rule.
     """
-    index = load_policy_index(meta_root)
-    narrow = index.narrow_only(pack)
+    narrow = effective_narrow_only(meta_root, pack)
     layers: list[tuple[str, Policy]] = []
     for layer_name, name in select_policy_names(platform_config, pack, repo=repo, agent=agent):
         policy = load_policy(meta_root, pack, name)
@@ -509,6 +526,7 @@ __all__ = [
     "check_owner_less_branches",
     "check_policy_drift",
     "compose",
+    "effective_narrow_only",
     "effective_policy",
     "load_policy",
     "load_policy_index",
