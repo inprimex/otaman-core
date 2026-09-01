@@ -320,6 +320,7 @@ GIT_PACK_NARROW_ONLY: frozenset[str] = frozenset(
         "force_push_forbidden",
         "owner_admission_required",
         "agents_merge_human_owned_branch_forbidden",
+        "require_status_checks",
     }
 )
 
@@ -328,6 +329,11 @@ GIT_STANDARD_RULES: dict[str, Any] = {
     "force_push_forbidden": True,
     "owner_admission_required": True,
     "agents_merge_human_owned_branch_forbidden": True,
+    # "some CI check MUST pass before merge" — asserts the INTENT only. The
+    # specific required-check CONTEXT NAME is resolved PER REPO from that repo's
+    # live CI at generation time (design D4a), never a constant here — the fleet
+    # legitimately varies (ci-ok vs lint-and-test).
+    "require_status_checks": True,
     # non-narrow-only rules (profile/config; nearest-wins):
     "agent_self_merge_on_owned_repo": True,
     "branch_owner_convention": "<type>/<owner>/<topic>",
