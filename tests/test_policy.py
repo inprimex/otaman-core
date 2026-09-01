@@ -231,6 +231,25 @@ class TestShippedStandard:
         assert p.rules["agents_merge_human_owned_branch_forbidden"] is True
         assert p.rules["agent_self_merge_on_owned_repo"] is True
 
+    def test_git_standard_requires_status_checks_narrow_only(self):
+        # D4a: policy asserts CI-must-be-required (intent); the check NAME is
+        # resolved per-repo at generation, never a constant here.
+        p = shipped_standard("git")
+        assert p.rules["require_status_checks"] is True
+        assert "require_status_checks" in GIT_PACK_NARROW_ONLY
+        # no constant check-context name leaks into the policy
+        assert "ci-ok" not in p.rules.values() and "lint-and-test" not in p.rules.values()
+
+    def test_require_status_checks_cannot_be_loosened(self):
+        # narrow-only: an agent layer setting it False is refused
+        layers = [
+            ("program", Policy("git", "standard", {"require_status_checks": True})),
+            ("agent", Policy("git", "loose", {"require_status_checks": False})),
+        ]
+        eff, viol = compose(layers, GIT_PACK_NARROW_ONLY)
+        assert eff.rules["require_status_checks"] is True
+        assert any(v.rule == "require_status_checks" for v in viol)
+
     def test_unknown_pack_raises(self):
         with pytest.raises(PolicyError):
             shipped_standard("nope")
