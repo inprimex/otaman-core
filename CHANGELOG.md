@@ -24,9 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ssh_scope` note on the external-resource → ssh Host pointer (`ssh_ref`). The
   ssh mechanism stays in `~/.ssh/config`; `ssh_registry.ssh_config_has_host`
   and `connection_check.dangling_ssh_hosts` validate the pointed Host exists,
-  and `connection check` now fails naming a dangling Host. No external
-  SSH-management system in v1 (Q4). `connections-schema.yaml` adds both fields
-  (optional, backward-compatible).
+  and `connection check` now fails **naming** the dangling Host — `SshProber`
+  defaults `ssh_config_path` to `~/.ssh/config` (via `default_ssh_config_path`)
+  so Host validation runs without caller wiring; pass `ssh_config_path=None` to
+  opt out. No external SSH-management system in v1 (Q4). `connections-schema.yaml`
+  adds both fields (optional, backward-compatible).
 - **Plugin-tree wiring doctor check** (`ce-bootstrap-plugin-wiring` 1.2):
   `plugin_wiring.py` surfaces both halves of the silent slash-command gap as
   `otaman doctor` WARNs — a vendored plugin tree present while

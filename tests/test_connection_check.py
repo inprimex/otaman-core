@@ -22,6 +22,7 @@ from otaman_core.connection_check import (
     ProbeResult,
     SshProber,
     dangling_ssh_hosts,
+    default_ssh_config_path,
     load_reports,
     persist_reports,
     render_last_check,
@@ -181,14 +182,14 @@ class _SocketTouchRunner:
 class TestSshProber:
     def test_no_entry_is_unreachable(self, tmp_path):
         reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
-        res = SshProber(reg).probe(_ssh_conn())
+        res = SshProber(reg, ssh_config_path=None).probe(_ssh_conn())
         assert not res.reachable
         assert "no ssh-agent registered" in res.detail
 
     def test_dead_socket_is_unreachable(self, tmp_path):
         reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
         reg.register(AgentEntry("sunflowers-ssh", "/keys/sun", str(tmp_path / "gone.sock")))
-        res = SshProber(reg).probe(_ssh_conn())
+        res = SshProber(reg, ssh_config_path=None).probe(_ssh_conn())
         assert not res.reachable and "socket dead" in res.detail
 
     def test_live_socket_is_ok(self, tmp_path):
@@ -196,21 +197,21 @@ class TestSshProber:
         sock.write_text("")
         reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
         reg.register(AgentEntry("sunflowers-ssh", "/keys/sun", str(sock)))
-        res = SshProber(reg).probe(_ssh_conn())
+        res = SshProber(reg, ssh_config_path=None).probe(_ssh_conn())
         assert res.reachable and res.authenticated
 
     def test_read_only_probe_does_not_spawn(self, tmp_path):
         runner = _SocketTouchRunner()
         reg = SshAgentRegistry(tmp_path / "run", runner=runner)
         reg.register(AgentEntry("sunflowers-ssh", "/keys/sun", str(tmp_path / "gone.sock")))
-        SshProber(reg).probe(_ssh_conn())
+        SshProber(reg, ssh_config_path=None).probe(_ssh_conn())
         assert not any(c[0] == "ssh-agent" for c in runner.calls)  # no respawn
 
     def test_heal_respawns_and_reloads(self, tmp_path):
         runner = _SocketTouchRunner()
         reg = SshAgentRegistry(tmp_path / "run", runner=runner)
         reg.register(AgentEntry("sunflowers-ssh", "/keys/sun", str(tmp_path / "gone.sock")))
-        res = SshProber(reg).heal(_ssh_conn())
+        res = SshProber(reg, ssh_config_path=None).heal(_ssh_conn())
         assert res is not None and res.reachable and res.authenticated
         assert any(c[0] == "ssh-agent" for c in runner.calls)  # respawned
         assert any(c[0] == "ssh-add" and c[-1] == "/keys/sun" for c in runner.calls)  # reloaded
@@ -230,7 +231,7 @@ class TestEndToEndWithRealProbers:
         runner = _SocketTouchRunner()
         reg = SshAgentRegistry(tmp_path / "run", runner=runner)
         reg.register(AgentEntry("sunflowers-ssh", "/keys/sun", str(tmp_path / "gone.sock")))
-        chk = ConnectionChecker(ssh_prober=SshProber(reg), clock=FIXED_CLOCK)
+        chk = ConnectionChecker(ssh_prober=SshProber(reg, ssh_config_path=None), clock=FIXED_CLOCK)
 
         before = chk.check(_ssh_conn())  # read-only
         assert before.status == "socket-dead" and not before.healed
@@ -380,7 +381,7 @@ class TestSshHostPointerValidation:
         res = SshProber(reg, ssh_config_path=cfg).probe(_ssh_conn(ssh_ref="client-prod-deploy"))
         assert not res.reachable and not res.authenticated
         assert "client-prod-deploy" in res.detail
-        assert "not found in ssh_config" in res.detail
+        assert "not found in" in res.detail and str(cfg) in res.detail
 
     def test_present_host_passes_to_socket_check(self, tmp_path):
         cfg = tmp_path / "config"
@@ -390,11 +391,29 @@ class TestSshHostPointerValidation:
         res = SshProber(reg, ssh_config_path=cfg).probe(_ssh_conn(ssh_ref="client-prod-deploy"))
         assert "no ssh-agent registered" in res.detail  # got past the Host gate
 
-    def test_no_ssh_config_path_skips_validation(self, tmp_path):
-        # Backward-compatible: without a config path, no Host validation runs
+    def test_default_ssh_config_path_is_home_ssh_config(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        assert default_ssh_config_path() == tmp_path / ".ssh" / "config"
+
+    def test_explicit_none_opts_out_of_validation(self, tmp_path):
+        # Explicit ssh_config_path=None opts OUT of Host validation (socket-only).
         reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
-        res = SshProber(reg).probe(_ssh_conn(ssh_ref="anything"))
+        res = SshProber(reg, ssh_config_path=None).probe(_ssh_conn(ssh_ref="anything"))
         assert "no ssh-agent registered" in res.detail
+
+    def test_default_ssh_config_used_when_omitted(self, tmp_path, monkeypatch):
+        # aca 1.5: omitting ssh_config_path defaults to ~/.ssh/config, so the
+        # Host is validated (and named when missing) with NO caller wiring —
+        # this is exactly what the cli `connection check` verb relies on.
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("Host somethingelse\n")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
+        res = SshProber(reg).probe(_ssh_conn(ssh_ref="no-such-host-xyz"))  # ssh_config_path omitted
+        assert not res.reachable
+        assert "no-such-host-xyz" in res.detail and "not found in" in res.detail
 
     def test_check_surfaces_dangling_host(self, tmp_path):
         cfg = tmp_path / "config"
