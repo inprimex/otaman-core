@@ -21,6 +21,7 @@ from otaman_core.connection_check import (
     NetworkProber,
     ProbeResult,
     SshProber,
+    dangling_ssh_hosts,
     load_reports,
     persist_reports,
     render_last_check,
@@ -366,3 +367,65 @@ class TestRenderLastCheck:
         store = load_reports(path, PROG)
         assert render_last_check(store.get("gh-api")) == "ok · 2026-08-24T17:00:00+00:00"
         assert render_last_check(store.get("never-checked")) == "—"  # fallback
+
+
+class TestSshHostPointerValidation:
+    """1.2: connection check validates the external-resource → ssh Host pointer."""
+
+    def test_dangling_host_fails_naming_it(self, tmp_path):
+        # ssh_config exists but has no stanza for the pointed Host
+        cfg = tmp_path / "config"
+        cfg.write_text("Host other\n    IdentityFile /keys/other\n")
+        reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
+        res = SshProber(reg, ssh_config_path=cfg).probe(_ssh_conn(ssh_ref="client-prod-deploy"))
+        assert not res.reachable and not res.authenticated
+        assert "client-prod-deploy" in res.detail
+        assert "not found in ssh_config" in res.detail
+
+    def test_present_host_passes_to_socket_check(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host client-prod-deploy\n    IdentityFile /keys/cp\n")
+        reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
+        # Host exists → validation passes, falls through to the (empty) socket check
+        res = SshProber(reg, ssh_config_path=cfg).probe(_ssh_conn(ssh_ref="client-prod-deploy"))
+        assert "no ssh-agent registered" in res.detail  # got past the Host gate
+
+    def test_no_ssh_config_path_skips_validation(self, tmp_path):
+        # Backward-compatible: without a config path, no Host validation runs
+        reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
+        res = SshProber(reg).probe(_ssh_conn(ssh_ref="anything"))
+        assert "no ssh-agent registered" in res.detail
+
+    def test_check_surfaces_dangling_host(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host known\n")
+        reg = SshAgentRegistry(tmp_path / "run", runner=_SocketTouchRunner())
+        chk = ConnectionChecker(ssh_prober=SshProber(reg, ssh_config_path=cfg), clock=FIXED_CLOCK)
+        rep = chk.check(_ssh_conn(ssh_ref="missing-host"))
+        assert not rep.reachable
+        assert "missing-host" in rep.detail
+
+
+class TestDanglingSshHosts:
+    def test_lists_only_absent_hosts(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host present\n    IdentityFile /k\n")
+        conns = [
+            Connection("a", "ssh", "a.example", "program", ssh_ref="present"),
+            Connection("b", "ssh", "b.example", "program", ssh_ref="absent"),
+            Connection("c", "api", "c.example", "org", secret_ref="k"),  # no ssh_ref
+        ]
+        assert dangling_ssh_hosts(conns, ssh_config_path=cfg) == [("b", "absent")]
+
+    def test_empty_when_all_present(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host h1\nHost h2\n")
+        conns = [
+            Connection("a", "ssh", "a", "program", ssh_ref="h1"),
+            Connection("b", "ssh", "b", "program", ssh_ref="h2"),
+        ]
+        assert dangling_ssh_hosts(conns, ssh_config_path=cfg) == []
+
+    def test_missing_config_flags_all_ssh_pointers(self, tmp_path):
+        conns = [Connection("a", "ssh", "a", "program", ssh_ref="h1")]
+        assert dangling_ssh_hosts(conns, ssh_config_path=tmp_path / "nope") == [("a", "h1")]

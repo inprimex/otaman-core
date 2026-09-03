@@ -4,15 +4,25 @@ Resolves secret references declared in launch-settings.yaml (and later
 platform.yaml) through a tiered source chain:
 
     1. Process env  — variable already set in the shell
-    2. dotenv       — secrets.env (gitignored, mode 0600); workspace scope
-                      (<root>/.otaman/secrets.env) or tenant scope
-                      (~/.otaman/secrets.env) via ``scope: tenant`` on the ref
+    2. dotenv       — secrets.env (gitignored, mode 0600); scoped by ``scope``
+                      on the ref: ``program`` (default; <root>/.otaman/secrets.env),
+                      ``org`` (~/orgs/<org>/config/secrets.env), or ``tenant``
+                      (~/.otaman/secrets.env). ``workspace`` is a legacy alias of
+                      ``program``.
     3. keyring      — OS keychain via the keyring package (optional dep)
     4. (post-v1)    — vault / aws-sm / gcp-sm / azure-kv
 
 The chain is READ-only. The single write path is ``upsert_dotenv_secret`` —
 used by enroll-time commands (e.g. hitl TOTP) to persist a generated secret to
 a dotenv store; the reader sources never mutate.
+
+Beyond single-scope refs, credential config CASCADES across the three dotenv
+layers with per-key merge, nearest-scope-wins (program > org > tenant):
+:func:`resolve_cascade` resolves one key from its nearest defining layer, and
+:func:`credential_provenance` / :func:`credential_layer_paths` expose the
+values-free inventory (key → winning layer, layer → file) that the discovery
+surfaces render (agent-credential-access 1.1, Q1 ruling 2026-09-03). Absent
+layers are skipped silently; values never leave the call site (Q5).
 
 YAML shape accepted (backwards-compatible short form first):
 
@@ -99,13 +109,19 @@ class EnvSource:
 class DotenvSource:
     """Read from a ``secrets.env`` dotenv (0600).
 
-    Two scopes, selected by ``scope`` on the spec:
-      - ``workspace`` (default): ``<root>/.otaman/secrets.env`` — the
-        per-workspace store (with the pre-1.0 legacy fallback handled below).
+    Three scopes, selected by ``scope`` on the spec:
+      - ``program`` (default; ``workspace`` is a legacy alias):
+        ``<root>/.otaman/secrets.env`` — the per-workspace store (with the
+        pre-1.0 legacy fallback handled below).
+      - ``org``: ``~/orgs/<org>/config/secrets.env`` — the per-org store; the
+        org name comes from ``context['org']`` or ``spec['org']``.
       - ``tenant``: ``~/.otaman/secrets.env`` — the per-OS-user store, alongside
         ``hitl.yaml``/``edition.yaml``. Used by tenant-scoped refs such as a
         human's TOTP seed (``hitl.yaml`` ``enrollment[<email>].totp_secret_ref``),
         written at enrollment via :func:`upsert_dotenv_secret`.
+
+    These are the same three layers :func:`resolve_cascade` merges; a
+    single-scope ref pins one layer, the cascade walks all three nearest-first.
     """
 
     type_name = "dotenv"
@@ -114,17 +130,19 @@ class DotenvSource:
         name = spec.get("name")
         if not name:
             return None
-        if spec.get("scope") == "tenant":
+        scope = spec.get("scope")
+        if scope == "tenant":
             dotenv_path = tenant_secrets_path(context.get("home"))
-            if not dotenv_path.is_file():
+        elif scope == "org":
+            org = context.get("org") or spec.get("org")
+            if not org:
                 return None
-            return _read_dotenv_value(dotenv_path, name)
-        maestro_root = context.get("maestro_root")  # legacy: key renamed otaman_root at 1.0
-        if not maestro_root:
-            return None
-        dotenv_path = Path(maestro_root) / ".otaman" / "secrets.env"
-        if not dotenv_path.is_file():
-            dotenv_path = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro
+            dotenv_path = org_config_secrets_path(org, context.get("home"))
+        else:
+            maestro_root = context.get("maestro_root")  # legacy: key renamed otaman_root at 1.0
+            if not maestro_root:
+                return None
+            dotenv_path = _program_secrets_path(maestro_root)
         if not dotenv_path.is_file():
             return None
         return _read_dotenv_value(dotenv_path, name)
@@ -210,6 +228,99 @@ def tenant_secrets_path(home: Path | str | None = None) -> Path:
     return base / ".otaman" / "secrets.env"
 
 
+def org_config_secrets_path(org: str, home: Path | str | None = None) -> Path:
+    """The org dotenv store: ``~/orgs/<org>/config/secrets.env`` (``home`` injectable)."""
+    base = Path(home) if home else Path.home()
+    return base / "orgs" / str(org) / "config" / "secrets.env"
+
+
+def _program_secrets_path(maestro_root: Path | str) -> Path:
+    """The program dotenv store ``<root>/.otaman/secrets.env`` (legacy: ``.maestro`` fallback)."""
+    root = Path(maestro_root)
+    path = root / ".otaman" / "secrets.env"
+    if not path.is_file():
+        legacy = root / ".maestro" / "secrets.env"  # legacy: .maestro fallback
+        if legacy.is_file():
+            return legacy
+    return path
+
+
+#: The credential cascade layers, NEAREST scope first (program > org > tenant).
+CREDENTIAL_LAYERS: tuple[str, ...] = ("program", "org", "tenant")
+
+
+def credential_layer_paths(
+    *,
+    maestro_root: Path | str | None = None,
+    org: str | None = None,
+    home: Path | str | None = None,
+) -> dict[str, Path]:
+    """The dotenv file for each APPLICABLE cascade layer, nearest scope first.
+
+    Values-free. A layer is included only when its input is supplied: ``program``
+    needs ``maestro_root``, ``org`` needs ``org``; ``tenant`` is always present.
+    The path is returned whether or not the file exists — callers checking
+    existence get the location to report either way (the discovery verb names
+    where each layer's file lives, present or not).
+    """
+    paths: dict[str, Path] = {}
+    if maestro_root is not None:
+        paths["program"] = _program_secrets_path(maestro_root)
+    if org is not None:
+        paths["org"] = org_config_secrets_path(org, home)
+    paths["tenant"] = tenant_secrets_path(home)
+    return paths
+
+
+def resolve_cascade(
+    key: str,
+    *,
+    maestro_root: Path | str | None = None,
+    org: str | None = None,
+    home: Path | str | None = None,
+) -> str | None:
+    """Resolve one credential key across the cascade, nearest scope winning.
+
+    Walks program → org → tenant (:data:`CREDENTIAL_LAYERS`) and returns the
+    value from the first layer that defines ``key``; ``None`` if no applicable
+    layer defines it. This is the per-key merge, resolved at the call site —
+    absent layers are skipped silently and the value is returned, never logged.
+    """
+    for path in credential_layer_paths(maestro_root=maestro_root, org=org, home=home).values():
+        if path.is_file():
+            value = _read_dotenv_value(path, key)
+            if value:
+                return value
+    return None
+
+
+def credential_provenance(
+    *,
+    maestro_root: Path | str | None = None,
+    org: str | None = None,
+    home: Path | str | None = None,
+) -> dict[str, str]:
+    """Map every cascade key to the layer that WINS it — VALUES-FREE.
+
+    For each key defined in any applicable layer, records the nearest-winning
+    layer name (``program`` / ``org`` / ``tenant``). This is the values-free
+    view of the per-key merge that the discovery surfaces (CLAUDE.local.md
+    block, ``otaman credentials`` verb) render — names and provenance only,
+    never a secret value (Q5).
+    """
+    provenance: dict[str, str] = {}
+    # Iterate FARTHEST-first so nearer layers overwrite — leaving each key
+    # mapped to its nearest (winning) layer.
+    layers = credential_layer_paths(maestro_root=maestro_root, org=org, home=home)
+    for layer in reversed(CREDENTIAL_LAYERS):
+        path = layers.get(layer)
+        if path is None:
+            continue
+        for key in _dotenv_keys(path):
+            provenance[key] = layer
+    return provenance
+
+
 def _dotenv_keys(path: Path) -> set[str]:
     """The KEY names in a dotenv file (values-free; empty if absent/unreadable)."""
     try:
@@ -230,6 +341,7 @@ def _dotenv_keys(path: Path) -> set[str]:
 def list_keys(
     *,
     maestro_root: Path | str | None = None,
+    org: str | None = None,
     home: Path | str | None = None,
 ) -> set[str]:
     """Enumerate the NAMES of secrets available in the dotenv backend — VALUES-FREE.
@@ -237,20 +349,17 @@ def list_keys(
     The ``list_keys()`` seam that ``connections.missing_secret_refs`` and
     ``otaman connection list`` (cli 3.1) consume to badge which ``secret_ref``s
     have a backing key. Reader-on-top / no new storage: it reads key names only,
-    NEVER values (Q5), from the workspace dotenv (``<maestro_root>/.otaman/
-    secrets.env``, when ``maestro_root`` given) unioned with the tenant dotenv
+    NEVER values (Q5), unioned across every applicable cascade layer — program
+    (``<maestro_root>/.otaman/secrets.env``, when ``maestro_root`` given), org
+    (``~/orgs/<org>/config/secrets.env``, when ``org`` given), and tenant
     (``~/.otaman/secrets.env``).
 
     The ``env`` and ``keyring`` sources are name-targeted (not enumerable), so
     they do not contribute — the dotenv store is the enumerable default backend.
     """
     keys: set[str] = set()
-    if maestro_root is not None:
-        ws = Path(maestro_root) / ".otaman" / "secrets.env"
-        if not ws.is_file():
-            ws = Path(maestro_root) / ".maestro" / "secrets.env"  # legacy: .maestro fallback
-        keys |= _dotenv_keys(ws)
-    keys |= _dotenv_keys(tenant_secrets_path(home))
+    for path in credential_layer_paths(maestro_root=maestro_root, org=org, home=home).values():
+        keys |= _dotenv_keys(path)
     return keys
 
 
@@ -333,16 +442,19 @@ def resolve(
     ref: SecretRef,
     *,
     maestro_root: Path | str | None = None,
+    org: str | None = None,
     home: Path | str | None = None,
 ) -> str | None:
     """Walk the source chain; first non-empty value wins.
 
-    ``home`` overrides the tenant home for ``scope: tenant`` dotenv refs
-    (defaults to ``Path.home()``); injectable for tests. Returns None if no
-    source supplies a value.
+    ``home`` overrides the tenant home for ``scope: tenant``/``scope: org``
+    dotenv refs (defaults to ``Path.home()``); ``org`` supplies the org name for
+    ``scope: org`` refs. Both injectable for tests. Returns None if no source
+    supplies a value.
     """
     context: dict[str, Any] = {
         "maestro_root": Path(maestro_root) if maestro_root else None,
+        "org": org,
         "home": Path(home) if home else None,
     }
     for spec in ref.sources:
@@ -362,10 +474,11 @@ def resolve_or_fail(
     ref: SecretRef,
     *,
     maestro_root: Path | str | None = None,
+    org: str | None = None,
     home: Path | str | None = None,
 ) -> str:
     """Resolve or raise a descriptive error naming every source tried."""
-    value = resolve(ref, maestro_root=maestro_root, home=home)
+    value = resolve(ref, maestro_root=maestro_root, org=org, home=home)
     if value:
         return value
     tried = ", ".join(_describe_source(s) for s in ref.sources) or "(no sources configured)"

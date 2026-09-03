@@ -27,6 +27,10 @@ except ImportError:  # pragma: no cover - yaml is a runtime dependency
 #: Cascade scope order, broadest → nearest. The nearest scope wins per name.
 SCOPES: tuple[str, ...] = ("tenant", "org", "program")
 
+#: Credential kinds a connection may carry (agent-credential-access 1.2, Q8).
+#: How an agent USES the credential — cheap to record now, painful to retrofit.
+KINDS: tuple[str, ...] = ("pat", "deploy-key", "api-key", "oauth", "ssh")
+
 
 class ConnectionsError(ValueError):
     """Raised when a connections.yaml is malformed or missing a required field."""
@@ -37,8 +41,12 @@ class Connection:
     """A resolved connection. All fields are locations/identifiers — never values.
 
     ``secret_ref`` is a secret-backend key NAME (resolved at the call site, never
-    here); ``ssh_ref`` is a ``~/.ssh/config`` Host alias / socket handle. Both may
-    be ``None`` depending on ``type``.
+    here); ``ssh_ref`` is the ``~/.ssh/config`` ``Host`` entry this resource maps
+    to — the external-resource → ssh Host pointer (1.2). The ssh MECHANISM (key
+    selection) stays in ``~/.ssh/config``; this layer stores only the pointer and
+    metadata, never a key path or value. ``ssh_scope`` is an optional free-text
+    note describing the pointer's scope/usage (e.g. "prod deploy, read-only").
+    ``kind`` is one of :data:`KINDS`. All may be ``None`` depending on ``type``.
     """
 
     name: str
@@ -47,6 +55,8 @@ class Connection:
     scope: str  # tenant | org | program
     secret_ref: str | None = None
     ssh_ref: str | None = None
+    kind: str | None = None
+    ssh_scope: str | None = None
 
 
 def parse_connections(data: Any, *, default_scope: str = "program") -> list[Connection]:
@@ -74,6 +84,9 @@ def parse_connections(data: Any, *, default_scope: str = "program") -> list[Conn
         scope = conn.get("scope", default_scope)
         if scope not in SCOPES:
             raise ConnectionsError(f"connections[{i}].scope: must be one of {', '.join(SCOPES)}")
+        kind = conn.get("kind")
+        if kind is not None and kind not in KINDS:
+            raise ConnectionsError(f"connections[{i}].kind: must be one of {', '.join(KINDS)}")
         out.append(
             Connection(
                 name=conn["name"],
@@ -82,6 +95,8 @@ def parse_connections(data: Any, *, default_scope: str = "program") -> list[Conn
                 scope=scope,
                 secret_ref=conn.get("secret_ref"),
                 ssh_ref=conn.get("ssh_ref"),
+                kind=kind,
+                ssh_scope=conn.get("ssh_scope"),
             )
         )
     return out
