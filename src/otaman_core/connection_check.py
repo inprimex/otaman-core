@@ -74,22 +74,42 @@ class Prober(Protocol):
     def heal(self, conn: Connection) -> ProbeResult | None: ...
 
 
+def default_ssh_config_path() -> Path:
+    """The standard ssh client config location, ``~/.ssh/config``."""
+    return Path.home() / ".ssh" / "config"
+
+
+#: Sentinel distinguishing "ssh_config_path not given" (→ use the default) from
+#: an explicit ``None`` (→ opt OUT of Host validation).
+_USE_DEFAULT_SSH_CONFIG = object()
+
+
 class SshProber:
     """Probes ssh connections via the 1.2 per-target socket registry.
 
     Reachability = the persisted socket is live; authentication = the agent has
     the key loaded. Self-heal spawns the per-target agent and reloads the key
     from the ``ssh_ref`` Host alias (``~/.ssh/config`` IdentityFile).
+
+    ``ssh_config_path`` defaults to :func:`default_ssh_config_path` (``~/.ssh/
+    config``) so the external-resource → Host pointer is validated by DEFAULT —
+    a dangling Host is named on every ``connection check`` without the caller
+    having to wire the path (aca 1.5). Pass ``ssh_config_path=None`` to opt out
+    of Host validation explicitly (e.g. unit tests exercising socket behavior).
     """
 
     def __init__(
         self,
         registry: SshAgentRegistry,
         *,
-        ssh_config_path=None,
+        ssh_config_path=_USE_DEFAULT_SSH_CONFIG,
     ) -> None:
         self._registry = registry
-        self._ssh_config_path = ssh_config_path
+        self._ssh_config_path = (
+            default_ssh_config_path()
+            if ssh_config_path is _USE_DEFAULT_SSH_CONFIG
+            else ssh_config_path
+        )
 
     def probe(self, conn: Connection) -> ProbeResult:
         # 1.2: validate the external-resource → ssh Host pointer before anything
@@ -98,7 +118,9 @@ class SshProber:
         if conn.ssh_ref and self._ssh_config_path is not None:
             if not ssh_config_has_host(conn.ssh_ref, self._ssh_config_path):
                 return ProbeResult(
-                    False, False, f"ssh Host '{conn.ssh_ref}' not found in ssh_config"
+                    False,
+                    False,
+                    f"ssh Host '{conn.ssh_ref}' not found in {self._ssh_config_path}",
                 )
         entry = self._registry.get(conn.name)
         if entry is None:
@@ -418,6 +440,7 @@ __all__ = [
     "Prober",
     "SshProber",
     "SSH_TYPES",
+    "default_ssh_config_path",
     "load_reports",
     "persist_reports",
     "render_last_check",
