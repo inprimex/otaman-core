@@ -23,6 +23,7 @@ from otaman_core._secrets import (
     resolve,
     resolve_cascade,
     resolve_or_fail,
+    resolve_org_root,
     tenant_secrets_path,
     upsert_dotenv_secret,
 )
@@ -530,3 +531,67 @@ class TestListKeysOrgLayer:
         _write_secrets(org_config_secrets_path("acme", tmp_path), "O=1\n")
         _write_secrets(tenant_secrets_path(tmp_path), "T=1\n")
         assert list_keys(maestro_root=root, org="acme", home=tmp_path) == {"P", "O", "T"}
+
+
+class TestOrgAutoResolution:
+    """aca 1.5 fix: the org layer is discovered from a program cwd, not only from
+    an explicit org name — so `otaman connection map` (which passes only
+    maestro_root) renders all three layer rows."""
+
+    def _orgs_layout(self, tmp_path, *, org_secrets=None):
+        # ~/orgs/<org>/programs/<program>/<repo>  +  ~/orgs/<org>/config/secrets.env
+        repo = tmp_path / "orgs" / "acme" / "programs" / "acme" / "the-repo"
+        repo.mkdir(parents=True)
+        if org_secrets is not None:
+            org_env = tmp_path / "orgs" / "acme" / "config" / "secrets.env"
+            org_env.parent.mkdir(parents=True)
+            org_env.write_text(org_secrets, encoding="utf-8")
+        return repo
+
+    def test_resolve_org_root_from_path_under_orgs(self, tmp_path):
+        repo = self._orgs_layout(tmp_path)
+        assert resolve_org_root(repo) == tmp_path / "orgs" / "acme"
+
+    def test_resolve_org_root_none_outside_layout(self, tmp_path):
+        assert resolve_org_root(tmp_path / "not" / "an" / "org" / "tree") is None
+
+    def test_layer_paths_includes_org_from_maestro_root_alone(self, tmp_path):
+        # THE repro: only maestro_root passed (as the map verb does), no org= —
+        # the org row must still appear, pointing at the real org config file.
+        repo = self._orgs_layout(tmp_path, org_secrets="ORG_PAT=x\n")
+        paths = credential_layer_paths(maestro_root=repo)
+        assert set(paths) == {"program", "org", "tenant"}
+        assert paths["org"] == tmp_path / "orgs" / "acme" / "config" / "secrets.env"
+        assert paths["org"].is_file()  # present, as on Roman's tenant
+
+    def test_all_three_rows_render_present_or_absent(self, tmp_path):
+        # org file absent but the layout resolves → row still reported (absent)
+        repo = self._orgs_layout(tmp_path)  # no org secrets written
+        paths = credential_layer_paths(maestro_root=repo)
+        assert set(paths) == {"program", "org", "tenant"}
+        assert not paths["org"].exists()  # absent, but the LOCATION is reported
+
+    def test_cascade_reads_auto_resolved_org(self, tmp_path):
+        repo = self._orgs_layout(tmp_path, org_secrets="ORG_ONLY=from-org\n")
+        assert resolve_cascade("ORG_ONLY", maestro_root=repo) == "from-org"
+
+    def test_provenance_credits_auto_resolved_org(self, tmp_path):
+        repo = self._orgs_layout(tmp_path, org_secrets="ORG_ONLY=v\n")
+        assert credential_provenance(maestro_root=repo) == {"ORG_ONLY": "org"}
+
+    def test_list_keys_includes_auto_resolved_org(self, tmp_path):
+        repo = self._orgs_layout(tmp_path, org_secrets="ORG_K=v\n")
+        assert "ORG_K" in list_keys(maestro_root=repo)
+
+    def test_explicit_org_overrides_auto_resolution(self, tmp_path):
+        # explicit org= wins and resolves against home (test-injectable), not path
+        repo = self._orgs_layout(tmp_path, org_secrets="ORG_ONLY=v\n")
+        paths = credential_layer_paths(maestro_root=repo, org="other", home=tmp_path)
+        assert paths["org"] == tmp_path / "orgs" / "other" / "config" / "secrets.env"
+
+    def test_no_org_layer_outside_orgs_layout(self, tmp_path):
+        # maestro_root not under orgs/<org> → org layer omitted (no false row)
+        root = tmp_path / "loose-checkout"
+        root.mkdir()
+        paths = credential_layer_paths(maestro_root=root)
+        assert set(paths) == {"program", "tenant"}
