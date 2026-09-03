@@ -21,6 +21,7 @@ from otaman_core.ssh_registry import (
     AgentEntry,
     SshAgentRegistry,
     SshRegistryError,
+    ssh_config_has_host,
     ssh_config_identity,
 )
 
@@ -241,3 +242,37 @@ class TestValuesNeverExposed:
         assert fields == {"target", "key", "socket", "pid"}
         # 'key' is a path/alias locator — no field carries key material
         assert not any(f in ("secret", "private_key", "key_material") for f in fields)
+
+
+class TestSshConfigHasHost:
+    """1.2 primitive: does ssh_config declare a Host stanza for the alias?"""
+
+    def test_present_single_pattern(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host sunflowers\n    IdentityFile /keys/sun\n")
+        assert ssh_config_has_host("sunflowers", cfg) is True
+
+    def test_present_among_multiple_patterns(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host staging prod shared\n    IdentityFile /k\n")
+        assert ssh_config_has_host("prod", cfg) is True
+
+    def test_absent_host(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("Host other\n    IdentityFile /keys/other\n")
+        assert ssh_config_has_host("sunflowers", cfg) is False
+
+    def test_missing_config_is_false(self, tmp_path):
+        assert ssh_config_has_host("anything", tmp_path / "nope") is False
+
+    def test_host_without_identityfile_still_counts(self, tmp_path):
+        # A Host can select its key by other means; existence is what 1.2 checks.
+        cfg = tmp_path / "config"
+        cfg.write_text("Host keyless\n    HostName example.com\n")
+        assert ssh_config_has_host("keyless", cfg) is True
+
+    def test_comments_and_blanks_ignored(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text("# a comment\n\nHost real\n    User git\n")
+        assert ssh_config_has_host("real", cfg) is True
+        assert ssh_config_has_host("comment", cfg) is False

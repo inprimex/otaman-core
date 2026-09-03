@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Credential cascade** (`agent-credential-access` 1.1, Roman Q1-Q8 rulings):
+  per-key merge across the three dotenv layers — program (`<root>/.otaman/`),
+  org (`~/orgs/<org>/config/`), tenant (`~/.otaman/`) — nearest scope wins.
+  `_secrets.resolve_cascade` resolves one key at the call site;
+  `credential_provenance` / `credential_layer_paths` expose the values-free
+  key→layer / layer→file inventory the discovery surfaces render. `DotenvSource`
+  gains a `scope: org` layer; `resolve()` takes an `org`; `list_keys()` unions
+  all three layers.
+- **Typed connections + ssh Host pointer** (`agent-credential-access` 1.2):
+  `Connection` gains `kind` (`pat|deploy-key|api-key|oauth|ssh`, Q8) and an
+  `ssh_scope` note on the external-resource → ssh Host pointer (`ssh_ref`). The
+  ssh mechanism stays in `~/.ssh/config`; `ssh_registry.ssh_config_has_host`
+  and `connection_check.dangling_ssh_hosts` validate the pointed Host exists,
+  and `connection check` now fails naming a dangling Host. No external
+  SSH-management system in v1 (Q4). `connections-schema.yaml` adds both fields
+  (optional, backward-compatible).
 - **Plugin-tree wiring doctor check** (`ce-bootstrap-plugin-wiring` 1.2):
   `plugin_wiring.py` surfaces both halves of the silent slash-command gap as
   `otaman doctor` WARNs — a vendored plugin tree present while

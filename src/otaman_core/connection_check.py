@@ -31,6 +31,7 @@ from otaman_core.ssh_registry import (
     AgentEntry,
     SshAgentRegistry,
     SshRegistryError,
+    ssh_config_has_host,
     ssh_config_identity,
 )
 
@@ -91,6 +92,14 @@ class SshProber:
         self._ssh_config_path = ssh_config_path
 
     def probe(self, conn: Connection) -> ProbeResult:
+        # 1.2: validate the external-resource → ssh Host pointer before anything
+        # else — a dangling Host is a config defect the check must name, and no
+        # amount of socket healing fixes it.
+        if conn.ssh_ref and self._ssh_config_path is not None:
+            if not ssh_config_has_host(conn.ssh_ref, self._ssh_config_path):
+                return ProbeResult(
+                    False, False, f"ssh Host '{conn.ssh_ref}' not found in ssh_config"
+                )
         entry = self._registry.get(conn.name)
         if entry is None:
             return ProbeResult(False, False, "no ssh-agent registered for target")
@@ -374,8 +383,29 @@ def render_last_check(report: CheckReport | None) -> str:
     return f"{report.status} · {report.checked_at}"
 
 
+def dangling_ssh_hosts(
+    connections: Iterable[Connection],
+    *,
+    ssh_config_path: Path,
+) -> list[tuple[str, str]]:
+    """Values-free list of connections whose ssh Host pointer is absent from ssh_config.
+
+    For every connection carrying an ``ssh_ref`` (the external-resource → ssh Host
+    pointer, 1.2), returns ``(connection name, missing Host)`` when that Host has
+    no ``~/.ssh/config`` stanza — the dangling-pointer inventory the discovery
+    surfaces (``otaman credentials``/doctor) render and ``connection check``
+    fails on. Sorted by connection name; compares Host NAMES only, never keys.
+    """
+    return sorted(
+        (c.name, c.ssh_ref)
+        for c in connections
+        if c.ssh_ref and not ssh_config_has_host(c.ssh_ref, ssh_config_path)
+    )
+
+
 # Re-exported so a caller can build an ssh entry without importing 1.2 directly.
 __all__ = [
+    "dangling_ssh_hosts",
     "DEFAULT_REPORTS_FILENAME",
     "REPORT_STORE_VERSION",
     "AgentEntry",

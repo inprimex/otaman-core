@@ -10,6 +10,11 @@
 # Values-never-exposed invariant (Q5): a connection stores `secret_ref` (a
 # backend key NAME) and `ssh_ref` (a Host alias / socket handle) — NEVER a
 # secret value.
+#
+# Task 1.2 additions (backward-compatible, both optional): `kind` (the
+# credential type — how an agent USES it) and `ssh_scope` (a free-text note on
+# the external-resource → ssh Host pointer). Both are locators/metadata; neither
+# holds a value.
 
 type: object
 additionalProperties: false
@@ -45,8 +50,21 @@ properties:
         ssh_ref:
           type: string
           description: >
-            SSH Host alias (~/.ssh/config) + socket handle, when type=ssh.
-            A locator, never a key value.
+            The ~/.ssh/config Host entry this resource maps to — the
+            external-resource → ssh Host pointer (task 1.2). The ssh MECHANISM
+            (key selection) stays in ~/.ssh/config; this is a locator, never a
+            key path or value. `connection check` validates the Host exists.
+        ssh_scope:
+          type: string
+          description: >
+            Optional free-text note on the ssh Host pointer's scope/usage
+            (e.g. "prod deploy, read-only"). Metadata only, never a value.
+        kind:
+          type: string
+          enum: [pat, deploy-key, api-key, oauth, ssh]
+          description: >
+            Credential kind — how an agent USES this connection (task 1.2, Q8).
+            Distinct from `type` (which names the reach/protocol); optional.
         scope:
           type: string
           enum: [tenant, org, program]

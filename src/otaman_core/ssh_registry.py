@@ -264,3 +264,28 @@ def ssh_config_identity(host_alias: str, config_path: Path) -> str | None:
         elif keyword == "identityfile" and in_match:
             return os.path.expanduser(value)
     return None
+
+
+def ssh_config_has_host(host_alias: str, config_path: Path) -> bool:
+    """Return whether ``~/.ssh/config`` declares a ``Host`` stanza for ``host_alias``.
+
+    The existence primitive behind ``connection check``'s dangling-pointer
+    validation (agent-credential-access 1.2): a connection's ``ssh_ref`` points
+    at an ssh_config ``Host`` entry, and the check fails when that Host is
+    absent. Exact-match on the stanza patterns, mirroring
+    :func:`ssh_config_identity`; a missing/unreadable config yields ``False``.
+    Reads Host lines only — never key material.
+    """
+    if not config_path.is_file():
+        return False
+    for raw in config_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        keyword, value = parts[0].lower(), parts[1].strip()
+        if keyword == "host" and host_alias in value.split():
+            return True
+    return False

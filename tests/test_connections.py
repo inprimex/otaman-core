@@ -17,6 +17,7 @@ except ImportError:
     pytest.skip("PyYAML not installed", allow_module_level=True)
 
 from otaman_core.connections import (
+    KINDS,
     Connection,
     ConnectionsError,
     default_scope_files,
@@ -198,7 +199,17 @@ class TestValuesNeverExposed:
         )
         (conn,) = resolve([("program", program)])
         fields = set(vars(conn))
-        assert fields == {"name", "type", "endpoint", "scope", "secret_ref", "ssh_ref"}
+        # 1.2 added `kind` and `ssh_scope` — still all locators/metadata, no value.
+        assert fields == {
+            "name",
+            "type",
+            "endpoint",
+            "scope",
+            "secret_ref",
+            "ssh_ref",
+            "kind",
+            "ssh_scope",
+        }
         # no attribute could hold a value — the model has none
         assert not any("value" in f or "secret_env" in f for f in fields)
         assert conn.secret_ref is None
@@ -219,3 +230,64 @@ class TestInventory:
     def test_no_missing_when_all_present(self):
         conns = [Connection("a-conn", "api", "a", "program", secret_ref="k")]
         assert missing_secret_refs(conns, {"k"}) == []
+
+
+class TestConnectionKind:
+    """1.2 (Q8): connection records carry a `kind` credential type."""
+
+    def test_kinds_are_the_five_ruled(self):
+        assert KINDS == ("pat", "deploy-key", "api-key", "oauth", "ssh")
+
+    def test_parses_each_valid_kind(self):
+        for kind in KINDS:
+            conns = parse_connections(
+                {"connections": [{"name": "c", "type": "api", "endpoint": "e", "kind": kind}]}
+            )
+            assert conns[0].kind == kind
+
+    def test_kind_optional_defaults_none(self):
+        conns = parse_connections({"connections": [{"name": "c", "type": "api", "endpoint": "e"}]})
+        assert conns[0].kind is None
+
+    def test_invalid_kind_raises_naming_allowed(self):
+        with pytest.raises(ConnectionsError) as exc:
+            parse_connections(
+                {"connections": [{"name": "c", "type": "api", "endpoint": "e", "kind": "token"}]}
+            )
+        assert "kind" in str(exc.value)
+        assert "pat" in str(exc.value)
+
+
+class TestSshHostPointer:
+    """1.2: external-resource → ssh Host pointer + scope note."""
+
+    def test_parses_ssh_ref_and_scope(self):
+        conns = parse_connections(
+            {
+                "connections": [
+                    {
+                        "name": "client-prod",
+                        "type": "ssh",
+                        "endpoint": "client-prod.example.com",
+                        "kind": "ssh",
+                        "ssh_ref": "client-prod-deploy",
+                        "ssh_scope": "prod deploy, read-only",
+                    }
+                ]
+            }
+        )
+        c = conns[0]
+        assert c.ssh_ref == "client-prod-deploy"
+        assert c.ssh_scope == "prod deploy, read-only"
+        assert c.kind == "ssh"
+
+    def test_ssh_scope_optional(self):
+        conns = parse_connections(
+            {"connections": [{"name": "c", "type": "ssh", "endpoint": "e", "ssh_ref": "h"}]}
+        )
+        assert conns[0].ssh_scope is None
+
+    def test_pointer_holds_no_key_path_or_value(self):
+        # The pointer is a Host NAME only — never a key path or secret value.
+        c = Connection("r", "ssh", "e", "program", ssh_ref="host-alias", ssh_scope="note")
+        assert "/" not in (c.ssh_ref or "")  # not a filesystem path

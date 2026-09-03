@@ -9,14 +9,19 @@ import pytest
 
 # _secrets is provided by the otaman_core package (pyproject pythonpath = ["src"])
 from otaman_core._secrets import (
+    CREDENTIAL_LAYERS,
     DotenvSource,
     EnvSource,
     KeyringSource,
     SecretRef,
+    credential_layer_paths,
+    credential_provenance,
     list_keys,
     load_dotenv,
+    org_config_secrets_path,
     register_source,
     resolve,
+    resolve_cascade,
     resolve_or_fail,
     tenant_secrets_path,
     upsert_dotenv_secret,
@@ -378,3 +383,150 @@ class TestListKeys:
             Connection("no-key", "api", "b", "program", secret_ref="absent"),
         ]
         assert missing_secret_refs(conns, list_keys(home=tmp_path)) == ["no-key"]
+
+
+def _write_secrets(path: Path, contents: str) -> None:
+    """Write a secrets.env at an arbitrary layer path, creating parents."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents, encoding="utf-8")
+
+
+class TestOrgDotenvScope:
+    """`scope: org` reads ~/orgs/<org>/config/secrets.env — the middle layer."""
+
+    def test_org_path_shape(self, tmp_path):
+        assert (
+            org_config_secrets_path("acme", tmp_path)
+            == tmp_path / "orgs" / "acme" / "config" / "secrets.env"
+        )
+
+    def test_resolves_org_scoped_ref(self, tmp_path):
+        _write_secrets(org_config_secrets_path("acme", tmp_path), "GITLAB_TOKEN=org-val\n")
+        ref = SecretRef.from_config({"type": "dotenv", "name": "GITLAB_TOKEN", "scope": "org"})
+        assert resolve(ref, org="acme", home=tmp_path) == "org-val"
+
+    def test_org_scope_without_org_returns_none(self, tmp_path):
+        _write_secrets(org_config_secrets_path("acme", tmp_path), "GITLAB_TOKEN=org-val\n")
+        ref = SecretRef.from_config({"type": "dotenv", "name": "GITLAB_TOKEN", "scope": "org"})
+        # no org supplied in context or spec -> cannot locate the org layer
+        assert resolve(ref, home=tmp_path) is None
+
+    def test_org_name_from_spec_when_absent_in_context(self, tmp_path):
+        _write_secrets(org_config_secrets_path("acme", tmp_path), "K=spec-org\n")
+        ref = SecretRef.from_config({"type": "dotenv", "name": "K", "scope": "org", "org": "acme"})
+        assert resolve(ref, home=tmp_path) == "spec-org"
+
+
+class TestCredentialCascade:
+    """Per-key merge cascade program > org > tenant, nearest-scope-wins (1.1)."""
+
+    def _layers(self, tmp_path, *, program=None, org=None, tenant=None):
+        root = tmp_path / "prog"
+        if program is not None:
+            _write_secrets(root / ".otaman" / "secrets.env", program)
+        if org is not None:
+            _write_secrets(org_config_secrets_path("acme", tmp_path), org)
+        if tenant is not None:
+            _write_secrets(tenant_secrets_path(tmp_path), tenant)
+        return root
+
+    def test_layers_ordered_nearest_first(self):
+        assert CREDENTIAL_LAYERS == ("program", "org", "tenant")
+
+    def test_spec_scenario_program_over_org(self, tmp_path):
+        # GIVEN GITHUB_TOKEN at org+program, GITLAB_TOKEN only at org
+        root = self._layers(
+            tmp_path,
+            program="GITHUB_TOKEN=prog-gh\n",
+            org="GITHUB_TOKEN=org-gh\nGITLAB_TOKEN=org-gl\n",
+        )
+        # THEN GITHUB_TOKEN resolves from program, GITLAB_TOKEN from org
+        assert (
+            resolve_cascade("GITHUB_TOKEN", maestro_root=root, org="acme", home=tmp_path)
+            == "prog-gh"
+        )
+        assert (
+            resolve_cascade("GITLAB_TOKEN", maestro_root=root, org="acme", home=tmp_path)
+            == "org-gl"
+        )
+
+    def test_tenant_is_fallback_when_nearer_absent(self, tmp_path):
+        root = self._layers(tmp_path, tenant="ONLY_TENANT=t\n")
+        assert resolve_cascade("ONLY_TENANT", maestro_root=root, org="acme", home=tmp_path) == "t"
+
+    def test_program_wins_over_tenant(self, tmp_path):
+        root = self._layers(tmp_path, program="K=prog\n", tenant="K=tenant\n")
+        assert resolve_cascade("K", maestro_root=root, org="acme", home=tmp_path) == "prog"
+
+    def test_org_wins_over_tenant(self, tmp_path):
+        root = self._layers(tmp_path, org="K=org\n", tenant="K=tenant\n")
+        assert resolve_cascade("K", maestro_root=root, org="acme", home=tmp_path) == "org"
+
+    def test_absent_key_returns_none(self, tmp_path):
+        root = self._layers(tmp_path, program="A=1\n")
+        assert resolve_cascade("MISSING", maestro_root=root, org="acme", home=tmp_path) is None
+
+    def test_absent_layers_skipped_silently(self, tmp_path):
+        # Only tenant supplied inputs (no maestro_root, no org) -> tenant-only cascade
+        _write_secrets(tenant_secrets_path(tmp_path), "T=only\n")
+        assert resolve_cascade("T", home=tmp_path) == "only"
+
+
+class TestCredentialLayerPaths:
+    def test_all_three_when_inputs_given(self, tmp_path):
+        paths = credential_layer_paths(maestro_root=tmp_path / "prog", org="acme", home=tmp_path)
+        assert list(paths) == ["program", "org", "tenant"]  # nearest-first
+        assert paths["program"] == tmp_path / "prog" / ".otaman" / "secrets.env"
+        assert paths["org"] == org_config_secrets_path("acme", tmp_path)
+        assert paths["tenant"] == tenant_secrets_path(tmp_path)
+
+    def test_program_omitted_without_maestro_root(self, tmp_path):
+        paths = credential_layer_paths(org="acme", home=tmp_path)
+        assert "program" not in paths
+        assert set(paths) == {"org", "tenant"}
+
+    def test_org_omitted_without_org(self, tmp_path):
+        paths = credential_layer_paths(maestro_root=tmp_path / "prog", home=tmp_path)
+        assert set(paths) == {"program", "tenant"}
+
+    def test_paths_returned_even_when_files_absent(self, tmp_path):
+        # location reporting must work whether or not the file exists
+        paths = credential_layer_paths(maestro_root=tmp_path / "prog", org="acme", home=tmp_path)
+        assert not paths["program"].exists()
+        assert isinstance(paths["program"], Path)
+
+
+class TestCredentialProvenance:
+    """Values-free key -> winning-layer map for the discovery surfaces."""
+
+    def test_maps_each_key_to_nearest_layer(self, tmp_path):
+        root = tmp_path / "prog"
+        _write_secrets(root / ".otaman" / "secrets.env", "GITHUB_TOKEN=x\n")
+        _write_secrets(
+            org_config_secrets_path("acme", tmp_path), "GITHUB_TOKEN=y\nGITLAB_TOKEN=z\n"
+        )
+        _write_secrets(tenant_secrets_path(tmp_path), "TENANT_ONLY=t\n")
+        prov = credential_provenance(maestro_root=root, org="acme", home=tmp_path)
+        assert prov == {
+            "GITHUB_TOKEN": "program",  # program shadows org
+            "GITLAB_TOKEN": "org",
+            "TENANT_ONLY": "tenant",
+        }
+
+    def test_never_contains_values(self, tmp_path):
+        _write_secrets(tenant_secrets_path(tmp_path), "SECRET_KEY=super-secret-value\n")
+        prov = credential_provenance(home=tmp_path)
+        assert "super-secret-value" not in prov.values()
+        assert prov == {"SECRET_KEY": "tenant"}
+
+    def test_empty_when_no_layers(self, tmp_path):
+        assert credential_provenance(home=tmp_path) == {}
+
+
+class TestListKeysOrgLayer:
+    def test_unions_all_three_layers(self, tmp_path):
+        root = tmp_path / "prog"
+        _write_secrets(root / ".otaman" / "secrets.env", "P=1\n")
+        _write_secrets(org_config_secrets_path("acme", tmp_path), "O=1\n")
+        _write_secrets(tenant_secrets_path(tmp_path), "T=1\n")
+        assert list_keys(maestro_root=root, org="acme", home=tmp_path) == {"P", "O", "T"}

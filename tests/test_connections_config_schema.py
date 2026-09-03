@@ -89,8 +89,36 @@ class TestConnectionsValid:
         assert validate_connections({"connections": []}) == []
         assert validate_connections({}) == []
 
+    def test_kind_and_ssh_scope_validate(self):
+        # 1.2 additions: `kind` (enum) + `ssh_scope` (note) on the ssh pointer.
+        cfg = {
+            "connections": [
+                {
+                    "name": "client-prod",
+                    "type": "ssh",
+                    "endpoint": "client-prod.example.com",
+                    "kind": "deploy-key",
+                    "ssh_ref": "client-prod-deploy",
+                    "ssh_scope": "prod deploy, read-only",
+                    "scope": "program",
+                }
+            ]
+        }
+        assert validate_connections(cfg) == []
+
+    def test_every_ruled_kind_validates(self):
+        for kind in ("pat", "deploy-key", "api-key", "oauth", "ssh"):
+            cfg = {
+                "connections": [{"name": "conn-x", "type": "api", "endpoint": "e", "kind": kind}]
+            }
+            assert validate_connections(cfg) == [], f"kind {kind!r} should validate"
+
 
 class TestConnectionsInvalid:
+    def test_bad_kind_rejected(self):
+        cfg = {"connections": [{"name": "conn-x", "type": "api", "endpoint": "e", "kind": "token"}]}
+        assert validate_connections(cfg), "kind must be one of the ruled enum"
+
     def test_missing_required_field_rejected(self):
         cfg = {"connections": [{"name": "x-conn", "type": "api"}]}  # no endpoint
         assert validate_connections(cfg), "endpoint is required"
