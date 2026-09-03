@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Plugin-tree wiring doctor check** (`ce-bootstrap-plugin-wiring` 1.2):
+  `plugin_wiring.py` surfaces both halves of the silent slash-command gap as
+  `otaman doctor` WARNs — a vendored plugin tree present while
+  `runner.agent_bootstrap.plugin_dir` is absent, and a `plugin_dir` set to a
+  missing directory. Pure `check_plugin_wiring` rule plus the disk-facing
+  `resolve_plugin_wiring` helper for the CLI wrapper.
+
 ## [0.3.0] - 2026-08-26
 
 ### Added
