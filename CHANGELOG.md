@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `credential_provenance` / `credential_layer_paths` expose the values-free
   key→layer / layer→file inventory the discovery surfaces render. `DotenvSource`
   gains a `scope: org` layer; `resolve()` takes an `org`; `list_keys()` unions
-  all three layers.
+  all three layers. The org layer is auto-discovered from a program root's
+  `~/orgs/<org>/…` layout via `resolve_org_root`, so a program cwd alone
+  surfaces the org row (aca 1.5 gate fix — the org layer was previously dropped
+  whenever the caller could not name the org).
 - **Typed connections + ssh Host pointer** (`agent-credential-access` 1.2):
   `Connection` gains `kind` (`pat|deploy-key|api-key|oauth|ssh`, Q8) and an
   `ssh_scope` note on the external-resource → ssh Host pointer (`ssh_ref`). The

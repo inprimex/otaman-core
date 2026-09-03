@@ -234,6 +234,47 @@ def org_config_secrets_path(org: str, home: Path | str | None = None) -> Path:
     return base / "orgs" / str(org) / "config" / "secrets.env"
 
 
+def resolve_org_root(path: Path | str) -> Path | None:
+    """Derive the org root ``.../orgs/<org>`` for a path under the orgs layout.
+
+    The platform lays programs out as ``~/orgs/<org>/programs/<program>/<repo>``;
+    the org config (``config/secrets.env``, ``config/lifecycle.yaml``, …) lives at
+    the org root. Given any path beneath ``orgs/<org>/``, return that org root, or
+    ``None`` when the path is not under an ``orgs/<org>`` layout. Enables the
+    cascade to discover the org LAYER from a program root without the caller
+    having to know the org name (aca 1.5 fix — the org layer was silently dropped
+    because callers could not supply it from a cwd).
+    """
+    parts = Path(path).resolve().parts
+    if "orgs" in parts:
+        i = parts.index("orgs")
+        if i + 1 < len(parts):
+            return Path(*parts[: i + 2])
+    return None
+
+
+def _org_secrets_path(
+    *,
+    org: str | None,
+    maestro_root: Path | str | None,
+    home: Path | str | None,
+) -> Path | None:
+    """The org-layer dotenv path, from an explicit ``org`` name or discovered from
+    ``maestro_root``'s orgs-layout — or ``None`` when neither yields an org.
+
+    An explicit ``org`` name resolves against ``home`` (test-injectable); absent
+    that, the org root is discovered from ``maestro_root`` via
+    :func:`resolve_org_root` and its actual ``config/secrets.env`` is used.
+    """
+    if org is not None:
+        return org_config_secrets_path(org, home)
+    if maestro_root is not None:
+        org_root = resolve_org_root(maestro_root)
+        if org_root is not None:
+            return org_root / "config" / "secrets.env"
+    return None
+
+
 def _program_secrets_path(maestro_root: Path | str) -> Path:
     """The program dotenv store ``<root>/.otaman/secrets.env`` (legacy: ``.maestro`` fallback)."""
     root = Path(maestro_root)
@@ -257,17 +298,20 @@ def credential_layer_paths(
 ) -> dict[str, Path]:
     """The dotenv file for each APPLICABLE cascade layer, nearest scope first.
 
-    Values-free. A layer is included only when its input is supplied: ``program``
-    needs ``maestro_root``, ``org`` needs ``org``; ``tenant`` is always present.
-    The path is returned whether or not the file exists — callers checking
-    existence get the location to report either way (the discovery verb names
-    where each layer's file lives, present or not).
+    Values-free. A layer is included only when its input is resolvable: ``program``
+    needs ``maestro_root``; ``org`` comes from an explicit ``org`` name OR is
+    discovered from ``maestro_root``'s ``orgs/<org>`` layout (so a program cwd
+    alone surfaces the org layer — aca 1.5); ``tenant`` is always present. The
+    path is returned whether or not the file exists — callers checking existence
+    get the location to report either way (the discovery verb names where each
+    layer's file lives, present or not).
     """
     paths: dict[str, Path] = {}
     if maestro_root is not None:
         paths["program"] = _program_secrets_path(maestro_root)
-    if org is not None:
-        paths["org"] = org_config_secrets_path(org, home)
+    org_secrets = _org_secrets_path(org=org, maestro_root=maestro_root, home=home)
+    if org_secrets is not None:
+        paths["org"] = org_secrets
     paths["tenant"] = tenant_secrets_path(home)
     return paths
 
