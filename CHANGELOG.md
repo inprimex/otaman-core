@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Spec lifecycle substrate** (`spec-lifecycle-enforcement` 1.1-1.4, Roman
+  Q1-Q9 rulings): `spec_lifecycle.py` — the stage machine (`STAGES`
+  pre-proposal→…→archived, `spec-approved` HITL stage, research exemption,
+  amendment re-entry), repo-is-truth `.openspec.yaml` `read_stage`/`set_stage`
+  (D1), the `SpecPolicy` config layer with org→program cascade + `process.level`
+  (L1 never heavier, R1 scale-adaptive; D7), the three **local** gates
+  (`check_merge_gate`/`check_dispatch_gate`/`check_archive_gate` → `GateDecision`,
+  modes block|warn|self-waive with visible self-waive, per-program outcome-link
+  check; D2/D6), and the ratify backend (`ratify`/`apply_ratification`/
+  `ratifications_in_month`; human-only, mandatory reason, `ratified: true`; D4).
+  All CE-runnable with zero CI/git-host dependency; surfaces (verbs, doctor, CI
+  template) live in cli/plugin.
 - **Credential cascade** (`agent-credential-access` 1.1, Roman Q1-Q8 rulings):
   per-key merge across the three dotenv layers — program (`<root>/.otaman/`),
   org (`~/orgs/<org>/config/`), tenant (`~/.otaman/`) — nearest scope wins.
