@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Constitutional gate Stage-1 lint + critic telemetry** (`spec-proposal-constitutional-gate`
+  1.1/1.4, JTBD-57 Hook A): `spec_gate.py` — `lint_proposal` runs the deterministic,
+  never-blocking checks (front-matter schema, resolvable outcome/citations,
+  gitleaks-lite secret scan on the body, no TBD/TODO in critical fields,
+  `affected_repos` vs platform.yaml) and emits a 0-100 `LintResult` (score + tier
+  + values-free `LintFinding`s); `scan_secrets` returns pattern codes only, never
+  the secret. `record_critic_cost`/`total_critic_cost` capture per-critic-invocation
+  cost telemetry (pass-cap ≤2 enforced) for the platform usage plumbing (D6). Stage-2
+  critic and surfaces are plugin/cli.
 - **spec-approved transition validation** (`interactive-human-console` 2.2):
   `spec_lifecycle.validate_spec_approved_transition` (the console mints the
   stage, core validates it — `authored` predecessor, eligible approver, research
