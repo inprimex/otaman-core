@@ -498,6 +498,66 @@ def ratifications_in_month(
     return sum(1 for r in ratifications if isinstance(r.at, str) and r.at.startswith(prefix))
 
 
+# ---------------------------------------------------------------------------
+# spec-approved transition validation (interactive-human-console 2.2)
+
+
+@dataclass(frozen=True)
+class TransitionValidation:
+    """The verdict on a proposed ``authored → spec-approved`` transition.
+
+    ``valid`` is whether the console may mint the stage; ``reasons`` names every
+    failure when it may not. Values-free — identities/stages only.
+    """
+
+    valid: bool
+    reasons: tuple[str, ...] = ()
+
+
+def validate_spec_approved_transition(
+    change: Mapping[str, Any],
+    *,
+    approver: HumanRosterEntry | None,
+) -> TransitionValidation:
+    """Validate a proposed ``authored → spec-approved`` transition (IHC 2.2 / D5).
+
+    The console (IHC iteration 2) mints the stage; core validates it here. The
+    transition is legitimate only when: the change is currently at ``authored``
+    (the sole legal predecessor), an eligible spec-approver resolved (the ``cto``
+    hat else the default approver — pass the result of
+    :func:`resolve_spec_approver`), and the change is not research (research
+    dispatches nothing, so it never enters ``spec-approved``). Whether an
+    amendment needs this transition at all is a separate question —
+    :func:`amendment_reenters_review` — decided before minting.
+    """
+    reasons: list[str] = []
+    if is_research(change):
+        reasons.append("research change never enters spec-approved (it dispatches nothing)")
+    stage = change.get("stage")
+    if stage != "authored":
+        reasons.append(f"spec-approved requires the current stage to be 'authored'; got {stage!r}")
+    if approver is None:
+        reasons.append("no eligible spec-approver (cto hat or the default human approver required)")
+    return TransitionValidation(valid=not reasons, reasons=tuple(reasons))
+
+
+def apply_spec_approved(
+    change_dict: dict[str, Any],
+    approver: HumanRosterEntry,
+) -> dict[str, Any]:
+    """Return ``change_dict`` advanced to ``spec-approved`` with the approver recorded.
+
+    The symmetric writer to :func:`validate_spec_approved_transition`: sets
+    ``stage: spec-approved`` and a ``spec_approved_by`` marker naming the human
+    who approved the authored artifacts (D5). Pure — returns a new dict, does not
+    mutate the input, records the identity only, never artifact content.
+    """
+    out = dict(change_dict)
+    out["stage"] = SPEC_APPROVED_STAGE
+    out["spec_approved_by"] = approver.name
+    return out
+
+
 __all__ = [
     "CTO_ROLE",
     "DEFAULT_ENFORCEMENT",
@@ -512,8 +572,10 @@ __all__ = [
     "Ratification",
     "SpecLifecycleError",
     "SpecPolicy",
+    "TransitionValidation",
     "amendment_reenters_review",
     "apply_ratification",
+    "apply_spec_approved",
     "check_archive_gate",
     "check_dispatch_gate",
     "check_merge_gate",
@@ -533,4 +595,5 @@ __all__ = [
     "solutions_stage_required",
     "spec_approved_reached",
     "stage_index",
+    "validate_spec_approved_transition",
 ]

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **spec-approved transition validation** (`interactive-human-console` 2.2):
+  `spec_lifecycle.validate_spec_approved_transition` (the console mints the
+  stage, core validates it — `authored` predecessor, eligible approver, research
+  rejected) plus the symmetric `apply_spec_approved` writer. Composes the SLE
+  substrate; `TransitionValidation` result type.
 - **Spec lifecycle substrate** (`spec-lifecycle-enforcement` 1.1-1.4, Roman
   Q1-Q9 rulings): `spec_lifecycle.py` — the stage machine (`STAGES`
   pre-proposal→…→archived, `spec-approved` HITL stage, research exemption,

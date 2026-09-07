@@ -20,8 +20,10 @@ from otaman_core.spec_lifecycle import (
     Ratification,
     SpecLifecycleError,
     SpecPolicy,
+    TransitionValidation,
     amendment_reenters_review,
     apply_ratification,
+    apply_spec_approved,
     check_archive_gate,
     check_dispatch_gate,
     check_merge_gate,
@@ -40,6 +42,7 @@ from otaman_core.spec_lifecycle import (
     solutions_stage_required,
     spec_approved_reached,
     stage_index,
+    validate_spec_approved_transition,
 )
 
 # --- 1.1 stage model ----------------------------------------------------------
@@ -382,3 +385,51 @@ class TestGateDecisionShape:
         assert isinstance(d, GateDecision)
         assert d.gate == "merge"
         assert d.violations == () and d.notices == ()
+
+
+# --- IHC 2.2: spec-approved transition validation ----------------------------
+
+CTO = HumanRosterEntry(name="Roman", roles=["cto", "cofounder"])
+
+
+class TestSpecApprovedTransition:
+    def test_valid_from_authored_with_approver(self):
+        v = validate_spec_approved_transition({"stage": "authored"}, approver=CTO)
+        assert isinstance(v, TransitionValidation)
+        assert v.valid and v.reasons == ()
+
+    def test_refused_from_wrong_stage(self):
+        v = validate_spec_approved_transition({"stage": "proposed"}, approver=CTO)
+        assert not v.valid
+        assert any("authored" in r for r in v.reasons)
+
+    def test_refused_without_eligible_approver(self):
+        v = validate_spec_approved_transition({"stage": "authored"}, approver=None)
+        assert not v.valid
+        assert any("approver" in r for r in v.reasons)
+
+    def test_research_never_enters(self):
+        v = validate_spec_approved_transition({"stage": "pre-proposal"}, approver=CTO)
+        assert not v.valid
+        assert any("research" in r for r in v.reasons)
+
+    def test_multiple_reasons_accumulate(self):
+        v = validate_spec_approved_transition({"stage": "proposed"}, approver=None)
+        assert not v.valid and len(v.reasons) == 2
+
+    def test_apply_spec_approved_advances_and_records(self):
+        out = apply_spec_approved({"stage": "authored"}, CTO)
+        assert out["stage"] == "spec-approved"
+        assert out["spec_approved_by"] == "Roman"
+
+    def test_apply_spec_approved_is_pure(self):
+        original = {"stage": "authored"}
+        apply_spec_approved(original, CTO)
+        assert original == {"stage": "authored"}
+
+    def test_round_trip_validate_then_apply_reaches_dispatchable(self):
+        change = {"stage": "authored"}
+        assert validate_spec_approved_transition(change, approver=CTO).valid
+        advanced = apply_spec_approved(change, CTO)
+        # now the dispatch gate passes (spec_approved_reached is True)
+        assert spec_approved_reached(advanced)
