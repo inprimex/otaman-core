@@ -13,17 +13,21 @@ except ImportError:  # pragma: no cover
 
 from otaman_core.human_roster import HumanRosterEntry
 from otaman_core.spec_lifecycle import (
+    DELIVERY_MODES,
     ENFORCEMENT_MODES,
     PROCESS_LEVELS,
     STAGES,
+    AutoArchiveDecision,
     GateDecision,
     Ratification,
     SpecLifecycleError,
     SpecPolicy,
     TransitionValidation,
     amendment_reenters_review,
+    apply_auto_archive,
     apply_ratification,
     apply_spec_approved,
+    auto_archive_decision,
     check_archive_gate,
     check_dispatch_gate,
     check_merge_gate,
@@ -35,7 +39,9 @@ from otaman_core.spec_lifecycle import (
     parse_spec_policy,
     ratifications_in_month,
     ratify,
+    read_delivery,
     read_stage,
+    resolve_delivery,
     resolve_spec_approver,
     resolve_spec_policy,
     set_stage,
@@ -433,3 +439,101 @@ class TestSpecApprovedTransition:
         advanced = apply_spec_approved(change, CTO)
         # now the dispatch gate passes (spec_approved_reached is True)
         assert spec_approved_reached(advanced)
+
+
+# --- console-lifecycle-actions 2.1: delivery mode + auto-archive -------------
+
+_APPROVED_VERIFIED = {"stage": "verified", "approved_by": "roman (x)"}
+
+
+class TestDeliveryMode:
+    def test_modes(self):
+        assert DELIVERY_MODES == ("hitl", "auto")
+
+    def test_read_delivery_explicit(self):
+        assert read_delivery({"delivery": "auto"}) == "auto"
+        assert read_delivery({"delivery": "hitl"}) == "hitl"
+
+    def test_read_delivery_absent_or_invalid_is_none(self):
+        assert read_delivery({}) is None
+        assert read_delivery({"delivery": "bogus"}) is None
+
+    def test_resolve_explicit_wins(self):
+        assert resolve_delivery({"delivery": "auto"}, SpecPolicy(delivery_default="hitl")) == "auto"
+
+    def test_resolve_falls_back_to_policy_default(self):
+        assert resolve_delivery({}, SpecPolicy(delivery_default="auto")) == "auto"
+
+    def test_resolve_default_hitl(self):
+        assert resolve_delivery({}, SpecPolicy()) == "hitl"
+
+
+class TestSpecPolicyDelivery:
+    def test_parse_delivery_default(self):
+        assert parse_spec_policy({"delivery_default": "auto"}).delivery_default == "auto"
+
+    def test_invalid_delivery_default_falls_back(self):
+        assert parse_spec_policy({"delivery_default": "nope"}).delivery_default == "hitl"
+
+    def test_delivery_default_cascades(self):
+        # org sets auto, program silent → inherits auto
+        p = resolve_spec_policy({"delivery_default": "auto"}, {})
+        assert p.delivery_default == "auto"
+        # program overrides back to hitl
+        p2 = resolve_spec_policy({"delivery_default": "auto"}, {"delivery_default": "hitl"})
+        assert p2.delivery_default == "hitl"
+
+
+class TestAutoArchive:
+    def _clean_gate(self):
+        return check_archive_gate(_APPROVED_VERIFIED, SpecPolicy(enforcement="block"))
+
+    def test_auto_archives_when_verified_auto_and_gate_clean(self):
+        change = {**_APPROVED_VERIFIED, "delivery": "auto"}
+        d = auto_archive_decision(change, SpecPolicy(), archive_gate=self._clean_gate())
+        assert isinstance(d, AutoArchiveDecision)
+        assert d.archive and d.reasons == ()
+
+    def test_hitl_never_auto_archives(self):
+        change = {**_APPROVED_VERIFIED, "delivery": "hitl"}
+        d = auto_archive_decision(change, SpecPolicy(), archive_gate=self._clean_gate())
+        assert not d.archive and any("not 'auto'" in r for r in d.reasons)
+
+    def test_policy_default_auto_enables(self):
+        # no explicit delivery, program default auto
+        d = auto_archive_decision(
+            _APPROVED_VERIFIED, SpecPolicy(delivery_default="auto"), archive_gate=self._clean_gate()
+        )
+        assert d.archive
+
+    def test_only_from_verified(self):
+        change = {"stage": "implemented", "delivery": "auto", "approved_by": "x"}
+        gate = check_archive_gate(change, SpecPolicy(enforcement="block"))
+        d = auto_archive_decision(change, SpecPolicy(), archive_gate=gate)
+        assert not d.archive and any("verified" in r for r in d.reasons)
+
+    def test_refused_when_gate_refuses(self):
+        # verified + auto but unapproved → archive gate refuses (block)
+        change = {"stage": "verified", "delivery": "auto"}  # no approved_by
+        gate = check_archive_gate(change, SpecPolicy(enforcement="block"))
+        d = auto_archive_decision(change, SpecPolicy(), archive_gate=gate)
+        assert not d.archive and any("refuses" in r for r in d.reasons)
+
+    def test_warn_waiver_is_not_a_clean_pass(self):
+        # unapproved + warn mode → gate allowed but WAIVED → auto-archive refused
+        change = {"stage": "verified", "delivery": "auto"}
+        gate = check_archive_gate(change, SpecPolicy(enforcement="warn"))
+        assert gate.allowed and gate.waived  # precondition
+        d = auto_archive_decision(change, SpecPolicy(), archive_gate=gate)
+        assert not d.archive and any("waiver" in r for r in d.reasons)
+
+    def test_apply_auto_archive(self):
+        out = apply_auto_archive({**_APPROVED_VERIFIED, "delivery": "auto"})
+        assert out["stage"] == "archived"
+        assert "auto" in out["archived_by"]
+
+    def test_apply_auto_archive_is_pure(self):
+        original = {**_APPROVED_VERIFIED, "delivery": "auto"}
+        snapshot = dict(original)
+        apply_auto_archive(original)
+        assert original == snapshot

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Delivery mode + gate-gated auto-archive** (`console-lifecycle-actions` 2.1):
+  `spec_lifecycle` gains `delivery: hitl|auto` (`read_delivery`/`resolve_delivery`,
+  absent = hitl), a `spec_policy.delivery_default` cascade key, and
+  `auto_archive_decision`/`apply_auto_archive` — the automatic verified→archived
+  transition runs ONLY when delivery resolves to `auto`, the stage is `verified`,
+  and the archive gate passes CLEANLY (allowed and NOT waived; a warn/self-waive
+  is not a pass), recorded like any archive (D3/D4). Console rendering stays cli's.
 - **Constitutional gate Stage-1 lint + critic telemetry** (`spec-proposal-constitutional-gate`
   1.1/1.4, JTBD-57 Hook A): `spec_gate.py` — `lint_proposal` runs the deterministic,
   never-blocking checks (front-matter schema, resolvable outcome/citations,
