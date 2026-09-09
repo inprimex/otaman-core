@@ -207,6 +207,11 @@ DEFAULT_ENFORCEMENT = "warn"  # tenant default; our program sets ``block``
 PROCESS_LEVELS: tuple[str, ...] = ("spec-first", "solutions", "outcomes", "verified")
 DEFAULT_LEVEL = "spec-first"  # L1 — the mandatory spec gate + ONE approver hat
 
+#: Valid ``delivery`` modes (console-lifecycle-actions D3). ``hitl`` needs a human
+#: acceptance stop; ``auto`` skips only that stop (auto-archive stays gate-gated).
+DELIVERY_MODES: tuple[str, ...] = ("hitl", "auto")
+DEFAULT_DELIVERY = "hitl"  # absent delivery = hitl (a change needs acceptance by default)
+
 
 @dataclass(frozen=True)
 class SpecPolicy:
@@ -214,7 +219,8 @@ class SpecPolicy:
 
     Defaults are L1 (``spec-first``) with ``warn`` enforcement — the lightest
     conforming policy. ``process_level`` never gets heavier at L1; higher levels
-    only ADD requirements (the levels-only-ADD invariant).
+    only ADD requirements (the levels-only-ADD invariant). ``delivery_default``
+    is the program-wide fallback delivery mode (console-lifecycle-actions D3).
     """
 
     mandatory_proposal: bool = True
@@ -223,6 +229,7 @@ class SpecPolicy:
     unapproved_stages: tuple[str, ...] = ("pre-proposal",)
     enforcement: str = DEFAULT_ENFORCEMENT
     process_level: str = DEFAULT_LEVEL
+    delivery_default: str = DEFAULT_DELIVERY
 
 
 def _as_str_tuple(value: Any, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -251,6 +258,10 @@ def parse_spec_policy(block: Any) -> SpecPolicy:
     if level not in PROCESS_LEVELS:
         level = DEFAULT_LEVEL
 
+    delivery_default = block.get("delivery_default")
+    if delivery_default not in DELIVERY_MODES:
+        delivery_default = DEFAULT_DELIVERY
+
     return SpecPolicy(
         mandatory_proposal=bool(block.get("mandatory_proposal", True)),
         approvers=_as_str_tuple(block.get("approvers"), ("approver",)),
@@ -258,6 +269,7 @@ def parse_spec_policy(block: Any) -> SpecPolicy:
         unapproved_stages=_as_str_tuple(block.get("unapproved_stages"), ("pre-proposal",)),
         enforcement=enforcement,
         process_level=level,
+        delivery_default=delivery_default,
     )
 
 
@@ -558,24 +570,104 @@ def apply_spec_approved(
     return out
 
 
+# ---------------------------------------------------------------------------
+# delivery mode + gate-gated auto-archive (console-lifecycle-actions 2.1)
+
+
+def read_delivery(change: Mapping[str, Any]) -> str | None:
+    """The explicit ``delivery`` on a change (``hitl``/``auto``), or ``None`` if unset.
+
+    A value outside :data:`DELIVERY_MODES` is treated as unset (``None``) —
+    :func:`resolve_delivery` then falls back to the policy default.
+    """
+    value = change.get("delivery")
+    return value if value in DELIVERY_MODES else None
+
+
+def resolve_delivery(change: Mapping[str, Any], policy: SpecPolicy) -> str:
+    """The effective delivery mode: the change's explicit ``delivery`` wins, else
+    ``policy.delivery_default``, else :data:`DEFAULT_DELIVERY` (D3).
+
+    Claude session permission modes are NOT a source (D3) — only the durable
+    ``.openspec.yaml`` field and the program policy default.
+    """
+    explicit = read_delivery(change)
+    if explicit is not None:
+        return explicit
+    return policy.delivery_default
+
+
+@dataclass(frozen=True)
+class AutoArchiveDecision:
+    """Whether a ``verified`` change may auto-archive itself, and why not (D4)."""
+
+    archive: bool
+    reasons: tuple[str, ...] = ()
+
+
+def auto_archive_decision(
+    change: Mapping[str, Any],
+    policy: SpecPolicy,
+    *,
+    archive_gate: GateDecision,
+) -> AutoArchiveDecision:
+    """Decide the automatic ``verified → archived`` transition (D4).
+
+    Auto-archive runs ONLY when delivery resolves to ``auto``, the change is at
+    ``verified``, and the archive gate PASSES CLEANLY — ``allowed`` AND NOT
+    ``waived`` (a warn/self-waive is not a pass; auto skips the human-acceptance
+    stop, never a gate). Pass the result of :func:`check_archive_gate` as
+    ``archive_gate``. Autonomy is gate-gated, and stays visible via the delivery
+    badge the surfaces render.
+    """
+    reasons: list[str] = []
+    if resolve_delivery(change, policy) != "auto":
+        reasons.append("delivery is not 'auto' (human acceptance required)")
+    if change.get("stage") != "verified":
+        reasons.append(f"auto-archive only from 'verified'; current stage {change.get('stage')!r}")
+    if not archive_gate.allowed:
+        reasons.append("archive gate refuses")
+    elif archive_gate.waived:
+        reasons.append("archive gate only passes under a waiver, not cleanly")
+    return AutoArchiveDecision(archive=not reasons, reasons=tuple(reasons))
+
+
+def apply_auto_archive(change_dict: dict[str, Any]) -> dict[str, Any]:
+    """Return ``change_dict`` advanced to ``archived``, recorded like any archive (D4).
+
+    Pure — returns a new dict. Records an ``archived_by`` marker noting the
+    gate-passing automatic transition so the audit trail is explicit. The caller
+    guards with :func:`auto_archive_decision` first.
+    """
+    out = dict(change_dict)
+    out["stage"] = "archived"
+    out["archived_by"] = "auto (delivery: auto, gate-passing)"
+    return out
+
+
 __all__ = [
     "CTO_ROLE",
+    "DEFAULT_DELIVERY",
     "DEFAULT_ENFORCEMENT",
     "DEFAULT_LEVEL",
+    "DELIVERY_MODES",
     "ENFORCEMENT_MODES",
     "GATES",
     "PROCESS_LEVELS",
     "RESEARCH_STAGES",
     "SPEC_APPROVED_STAGE",
     "STAGES",
+    "AutoArchiveDecision",
     "GateDecision",
     "Ratification",
     "SpecLifecycleError",
     "SpecPolicy",
     "TransitionValidation",
     "amendment_reenters_review",
+    "apply_auto_archive",
     "apply_ratification",
     "apply_spec_approved",
+    "auto_archive_decision",
     "check_archive_gate",
     "check_dispatch_gate",
     "check_merge_gate",
@@ -587,8 +679,10 @@ __all__ = [
     "parse_spec_policy",
     "ratifications_in_month",
     "ratify",
+    "read_delivery",
     "read_openspec",
     "read_stage",
+    "resolve_delivery",
     "resolve_spec_approver",
     "resolve_spec_policy",
     "set_stage",
