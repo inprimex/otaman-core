@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`spec-change-approved` is a valid broadcast** (`tenant-defect-report` B4):
+  added `spec-change-approved` to `validate_message._BROADCAST_TYPES` — the
+  human's SCR-approval broadcast (`approve.py` → `to: all`) was rejected by the
+  CLI's own validator, making every approval audit record invalid. Shared
+  contract; the cli mirror list should stay in sync.
+
 ### Added
 - **Delivery mode + gate-gated auto-archive** (`console-lifecycle-actions` 2.1):
   `spec_lifecycle` gains `delivery: hitl|auto` (`read_delivery`/`resolve_delivery`,
