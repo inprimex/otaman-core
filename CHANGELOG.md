@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Write-time message-validation gate** (`bus-writer-self-validation` 1.1):
+  `validate_message.validate_message_before_write(content)` — the errors-only
+  library call bus writers invoke on a rendered message BEFORE writing it, so
+  the platform never persists a message its own validator would reject. Same
+  rules as `validate_message` (incl. the broadcast-type table); empty list =
+  safe to write.
+
 ### Fixed
 - **`spec-change-approved` is a valid broadcast** (`tenant-defect-report` B4):
   added `spec-change-approved` to `validate_message._BROADCAST_TYPES` — the

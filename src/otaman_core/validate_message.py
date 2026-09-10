@@ -48,6 +48,7 @@ except ImportError:
 #       - emergency-halt
 #       - agent-registry-change
 #       - lifecycle-change
+#       - spec-change-approved   (human SCR-approval broadcast; privileged)
 #     Any other type using `to: all` triggers a validation error.
 #
 #   expects-response: true | false
@@ -189,6 +190,23 @@ def validate_message(
         return [f"Cannot read file: {e}"], []
 
     return validate_message_content(content, known_agents)
+
+
+def validate_message_before_write(content: str, known_agents: set[str] | None = None) -> list[str]:
+    """Write-time validation gate: return the blocking ERRORS for a rendered message.
+
+    The library call every bus WRITER invokes on a message's complete rendered
+    ``content`` (frontmatter framing + body) BEFORE writing it to disk
+    (bus-writer-self-validation 1.1). An empty list means the message is safe to
+    write; a non-empty list means REFUSE the write and surface each error to the
+    sender — the platform must never write a message its own validator would
+    reject. Applies the exact same rules as :func:`validate_message` /
+    :func:`validate_message_content` (including the broadcast-type table). Only
+    errors are returned; warnings are advisory and never block a write — call
+    :func:`validate_message_content` directly when the caller also wants them.
+    """
+    errors, _warnings = validate_message_content(content, known_agents)
+    return errors
 
 
 def validate_message_content(
