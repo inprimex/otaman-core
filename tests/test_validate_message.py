@@ -162,6 +162,17 @@ class TestBroadcastWhitelist:
         )
         assert errors == []
 
+    def test_spec_change_approved_all_ok(self, tmp_path):
+        # tenant-defect-report B4: approve.py broadcasts spec-change-approved to: all
+        # (from the human) — it must pass its own validator (was rejected, making every
+        # approval audit record invalid). Privileged, so from: human like emergency-halt.
+        errors, _ = validate_message(
+            _write_msg(
+                tmp_path, _valid_fm(to="all", type="spec-change-approved", **{"from": "human"})
+            )
+        )
+        assert errors == []
+
     def test_info_all_invalid(self, tmp_path):
         errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="info")))
         assert any("all" in e for e in errors)

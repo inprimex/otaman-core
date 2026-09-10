@@ -160,8 +160,18 @@ _RFC3339_RE = re.compile(
 )
 
 
+# Message types that may legitimately address ``to: all`` (fleet-wide state
+# notifications). ``spec-change-approved`` is the human's SCR-approval broadcast
+# (approve.py → to: all) — omitting it made every approval audit record fail this
+# very validator (tenant-defect-report B4). Keep the cli's mirror list in sync.
 _BROADCAST_TYPES = frozenset(
-    {"contract-change", "emergency-halt", "agent-registry-change", "lifecycle-change"}
+    {
+        "contract-change",
+        "emergency-halt",
+        "agent-registry-change",
+        "lifecycle-change",
+        "spec-change-approved",
+    }
 )
 _REPLY_TO_PATTERN = re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
 
