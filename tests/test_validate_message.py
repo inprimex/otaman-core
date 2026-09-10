@@ -11,6 +11,7 @@ import pytest
 from otaman_core.validate_message import (
     PRIVILEGED_TYPES,
     validate_message,
+    validate_message_before_write,
     validate_message_content,
 )
 
@@ -527,3 +528,40 @@ class TestStdinMode:
         content = f"---\n{_valid_fm()}\n---\n\n## Subject: test\n"
         code, _ = self._run_stdin(content, tmp_path)
         assert code == 0
+
+
+class TestValidateBeforeWrite:
+    """bus-writer-self-validation 1.1: the write-time library gate (errors-only)."""
+
+    def _content(self, **fm):
+        return f"---\n{_valid_fm(**fm)}\n---\n\n## Subject: test\n"
+
+    def test_valid_message_returns_no_errors(self):
+        assert validate_message_before_write(self._content()) == []
+
+    def test_invalid_message_returns_blocking_errors(self):
+        # missing required 'type' → a blocking error, so the writer must refuse
+        fm = "\n".join(line for line in _valid_fm().splitlines() if not line.startswith("type:"))
+        content = f"---\n{fm}\n---\n\n## Subject: test\n"
+        errs = validate_message_before_write(content)
+        assert errs and any("type" in e for e in errs)
+
+    def test_broadcast_gate_shared_with_file_validator(self):
+        # same rules as validate_message: info to:all is refused at write time too
+        errs = validate_message_before_write(self._content(to="all", type="info"))
+        assert any("all" in e for e in errs)
+
+    def test_approved_broadcast_passes_write_gate(self):
+        # B4 fix visible through the write gate: spec-change-approved to:all from human
+        errs = validate_message_before_write(
+            self._content(to="all", type="spec-change-approved", **{"from": "human"})
+        )
+        assert errs == []
+
+    def test_returns_only_errors_not_warnings(self):
+        # a message that is warn-worthy but not error-worthy writes clean (errors == [])
+        errs = validate_message_before_write(self._content())
+        assert isinstance(errs, list)
+        # parity: the errors match validate_message_content's error channel
+        content = self._content()
+        assert errs == validate_message_content(content)[0]
