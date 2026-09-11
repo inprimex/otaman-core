@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`spec-approval-pending` message type** (`spec-gate-hardening` 1.4 support):
+  added to `validate_message.VALID_TYPES` — the targeted (`to: human`) triage
+  item `otaman propose` enqueues for the human's awaiting-approval queue and
+  `otaman check` surfaces. Not a broadcast. Unblocks the cli writer (which is
+  bwsv-pre-write-gated and would otherwise reject the unknown type).
 - **`x-gate-waived` frontmatter field** (`spec-gate-hardening` 1.5): `validate_message`
   now admits and validates the optional `x-gate-waived: <violation-slug>` field —
   written only by the gate-waiver path to record, per action, which spec-lifecycle
