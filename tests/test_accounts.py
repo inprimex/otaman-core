@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -45,13 +46,14 @@ def test_match_is_case_insensitive(tmp_path):
 
 
 def test_expands_tilde_and_env(tmp_path, monkeypatch):
+    # OS-agnostic: assert expansion matches the stdlib expanduser/expandvars the
+    # resolver uses, rather than a hardcoded POSIX path (Windows ~ uses USERPROFILE).
     org = tmp_path / "orgs" / "acme"
-    monkeypatch.setenv("HOME", "/home/roman")
-    monkeypatch.setenv("OT_CD", "/somewhere/cd")
+    monkeypatch.setenv("OT_CD", str(tmp_path / "cd"))
     _write_ls(org, {"accounts": {"a": {"human": "r", "config_dir": "~/.claude-r"}}})
-    assert resolve_human_config_dir(org, "r") == Path("/home/roman/.claude-r")
+    assert resolve_human_config_dir(org, "r") == Path(os.path.expanduser("~/.claude-r"))
     _write_ls(org, {"accounts": {"a": {"human": "r", "config_dir": "$OT_CD"}}})
-    assert resolve_human_config_dir(org, "r") == Path("/somewhere/cd")
+    assert resolve_human_config_dir(org, "r") == Path(str(tmp_path / "cd"))
 
 
 def test_unmapped_human_is_none(tmp_path):
