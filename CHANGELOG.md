@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-human config_dir resolver** (`team-mode-registers-and-sessions` 2.3a):
+  `accounts.resolve_human_config_dir(org_root, human_sub) -> Path | None` — the
+  one kernel parser of `launch-settings.yaml` `accounts:`, resolving the
+  `CLAUDE_CONFIG_DIR` for an acting human via the explicit `human:` field
+  (email/roster id; case-insensitive). Absent accounts / unmapped human /
+  missing `config_dir` → `None` (caller falls back to the shared default,
+  loudly; never raises). `~`/`$VAR` expanded; values-free (a path, never
+  credentials). Runner (v0.2.11) consumes it; the launcher migrates onto it.
 - **`announce` broadcast type** (`bus-writer-self-validation` ruling option b):
   added to `validate_message` `VALID_TYPES` + `_BROADCAST_TYPES` — the
   informational, non-privileged fleet `to: all` notification type. Legit
