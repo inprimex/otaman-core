@@ -565,3 +565,38 @@ class TestValidateBeforeWrite:
         # parity: the errors match validate_message_content's error channel
         content = self._content()
         assert errs == validate_message_content(content)[0]
+
+
+class TestGateWaivedField:
+    """spec-gate-hardening 1.5: x-gate-waived is a known, validated optional field."""
+
+    def test_valid_slug_accepted(self, tmp_path):
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(**{"x-gate-waived": "no-valid-approval"}))
+        )
+        assert errors == []
+
+    def test_absent_is_fine(self, tmp_path):
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm()))
+        assert errors == []
+
+    def test_empty_treated_as_absent(self, tmp_path):
+        # a bare `x-gate-waived:` parses to null → treated as absent (no error),
+        # consistent with how reply-to/priority handle empty optional fields
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(**{"x-gate-waived": ""})))
+        assert errors == []
+
+    def test_non_slug_rejected(self, tmp_path):
+        assert any(
+            "x-gate-waived" in e
+            for e in _errors(tmp_path, _valid_fm(**{"x-gate-waived": "Not A Slug!"}))
+        )
+
+    def test_admitted_by_write_gate(self):
+        # the reason 1.5 lands first: the pre-write gate must ADMIT this field
+        content = (
+            "---\n"
+            + _valid_fm(**{"x-gate-waived": "archiving-unapproved-change"})
+            + "\n---\n\n## Subject: test\n"
+        )
+        assert validate_message_before_write(content) == []

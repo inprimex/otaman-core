@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`x-gate-waived` frontmatter field** (`spec-gate-hardening` 1.5): `validate_message`
+  now admits and validates the optional `x-gate-waived: <violation-slug>` field —
+  written only by the gate-waiver path to record, per action, which spec-lifecycle
+  gate violation was waived (kebab-case slug). Landing it in the validator first
+  lets the bus-writer pre-write gate admit it instead of rejecting it as unknown.
 - **Write-time message-validation gate** (`bus-writer-self-validation` 1.1):
   `validate_message.validate_message_before_write(content)` — the errors-only
   library call bus writers invoke on a rendered message BEFORE writing it, so
