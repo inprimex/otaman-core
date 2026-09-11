@@ -600,3 +600,28 @@ class TestGateWaivedField:
             + "\n---\n\n## Subject: test\n"
         )
         assert validate_message_before_write(content) == []
+
+
+class TestSpecApprovalPendingType:
+    """spec-gate-hardening 1.4: spec-approval-pending is a known to:human triage type."""
+
+    def test_valid_to_human(self, tmp_path):
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="human", type="spec-approval-pending"))
+        )
+        assert errors == []
+
+    def test_passes_write_gate(self):
+        content = (
+            "---\n"
+            + _valid_fm(to="human", type="spec-approval-pending")
+            + "\n---\n\n## Subject: awaiting approval\n"
+        )
+        assert validate_message_before_write(content) == []
+
+    def test_not_a_broadcast(self, tmp_path):
+        # it's a targeted item, never to: all
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="spec-approval-pending"))
+        )
+        assert any("all" in e for e in errors)

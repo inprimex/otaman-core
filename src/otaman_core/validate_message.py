@@ -122,6 +122,10 @@ VALID_TYPES = {
     "solution-recommendation",
     # outcome-proposal-routing
     "outcome-proposal",
+    # spec-gate-hardening 1.4 — a targeted (to: human) triage item that `otaman
+    # propose` enqueues for the human's awaiting-approval queue; `otaman check`
+    # surfaces it. Not a broadcast (never to: all).
+    "spec-approval-pending",
     # program-lifecycle-states D4 — audit broadcast of a program state transition.
     # Informational, NOT privileged: the transition itself is authority-gated in
     # the `otaman program …` command (approver role / tier / HITL); this message
