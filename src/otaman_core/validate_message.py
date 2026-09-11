@@ -51,6 +51,11 @@ except ImportError:
 #       - spec-change-approved   (human SCR-approval broadcast; privileged)
 #     Any other type using `to: all` triggers a validation error.
 #
+#   x-gate-waived: <violation-slug>
+#     Optional. Written ONLY by the gate-waiver path to record, per action, that
+#     a specific spec-lifecycle gate violation was waived (durable, recipient-
+#     visible audit — spec-gate-hardening). Value is a kebab-case violation slug.
+#
 #   expects-response: true | false
 #     Sender declares whether a reply is required. Default false (FYI semantics
 #     preserved when absent). When true, the receiver MUST NOT ack as `resolved`
@@ -176,6 +181,13 @@ _BROADCAST_TYPES = frozenset(
 )
 _REPLY_TO_PATTERN = re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")
 
+# spec-gate-hardening 1.5: `x-gate-waived: <violation-slug>` — an optional field
+# written ONLY by the gate-waiver path, recording which gate violation was waived
+# (per-action, durable, recipient-visible). The value is a kebab-case violation
+# slug (e.g. `no-valid-approval`). Validated like every other field so the
+# bus-writer pre-write gate admits it instead of rejecting it as unknown.
+_GATE_WAIVED_SLUG = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
+
 
 def validate_message(
     filepath: Path, known_agents: set[str] | None = None
@@ -278,6 +290,15 @@ def validate_message_content(
             errors.append(
                 f"Invalid reply-to: '{reply_to}' — must be an agent name "
                 "(e.g. 'core-agent') or 'human'"
+            )
+
+    # x-gate-waived: optional per-action gate-waiver marker (spec-gate-hardening 1.5)
+    gate_waived = fm.get("x-gate-waived")
+    if gate_waived is not None:
+        if not isinstance(gate_waived, str) or not _GATE_WAIVED_SLUG.match(gate_waived):
+            errors.append(
+                f"Invalid x-gate-waived: '{gate_waived}' — must be a kebab-case "
+                "violation slug (e.g. 'no-valid-approval')"
             )
 
     # expects-response: optional boolean
