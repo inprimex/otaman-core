@@ -46,6 +46,7 @@ class RepoConfig:
     name: str
     owner: str
     owner_paths: dict[str, str] = field(default_factory=dict)
+    path: str = ""  # repos[].path — the on-disk location relative to platform.yaml's dir
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,10 @@ def parse_platform_config(data: dict[str, Any]) -> PlatformConfig:
                     )
                 owner_paths[pattern] = agent
 
-        repos.append(RepoConfig(name=name, owner=owner, owner_paths=owner_paths))
+        path_raw = r.get("path")
+        path = path_raw if isinstance(path_raw, str) else ""
+
+        repos.append(RepoConfig(name=name, owner=owner, owner_paths=owner_paths, path=path))
 
     return PlatformConfig(repos=repos)
 
@@ -252,6 +256,36 @@ def resolve_owner_for_path(
             if best is None or specificity > best[0]:
                 best = (specificity, agent)
     return best[1] if best else repo.owner
+
+
+def resolve_owner_for_cwd(
+    platform: PlatformConfig,
+    cwd: Path,
+    project_root: Path,
+) -> str | None:
+    """Map a filesystem ``cwd`` to its owning agent via the platform ownership map.
+
+    Finds the ``repos[]`` entry whose ``path`` (resolved relative to
+    ``project_root`` — the directory containing platform.yaml) encloses ``cwd``,
+    then resolves the owner for ``cwd``'s path within that repo via
+    :func:`resolve_owner_for_path` (glob overrides + catch-all ``owner``).
+    Returns ``None`` when no repo encloses ``cwd`` (caller decides). Repos with
+    no ``path`` are skipped.
+    """
+    target = cwd.resolve()
+    for repo in platform.repos:
+        if not repo.path:
+            continue
+        repo_abs = (project_root / repo.path).resolve()
+        if target == repo_abs:
+            rel = "."
+        else:
+            try:
+                rel = target.relative_to(repo_abs).as_posix()
+            except ValueError:
+                continue  # cwd not inside this repo
+        return resolve_owner_for_path(platform, repo.name, rel)
+    return None
 
 
 def resolve_owners_for_paths(

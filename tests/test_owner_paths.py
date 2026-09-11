@@ -16,6 +16,7 @@ from otaman_core.owner_paths import (
     _match_path,
     load_platform_config,
     parse_platform_config,
+    resolve_owner_for_cwd,
     resolve_owner_for_path,
     resolve_owners_for_paths,
     validate_owner_paths,
@@ -387,3 +388,69 @@ class TestPlatformConfig:
         rc = RepoConfig(name="x", owner="x-agent")
         with pytest.raises(AttributeError):
             rc.name = "y"  # type: ignore[misc]
+
+
+class TestRepoPathField:
+    def test_path_captured(self):
+        cfg = parse_platform_config(
+            {"repos": [{"name": "core", "owner": "core-agent", "path": "../otaman-core"}]}
+        )
+        assert cfg.repos[0].path == "../otaman-core"
+
+    def test_path_defaults_empty(self):
+        cfg = parse_platform_config({"repos": [{"name": "core", "owner": "core-agent"}]})
+        assert cfg.repos[0].path == ""
+
+
+class TestResolveOwnerForCwd:
+    def _platform(self):
+        return parse_platform_config(
+            {
+                "repos": [
+                    {"name": "core", "owner": "core-agent", "path": "../otaman-core"},
+                    {
+                        "name": "mono",
+                        "owner": "root-agent",
+                        "path": "../mono",
+                        "owner-paths": {"apps/web/**": "web-agent"},
+                    },
+                    {"name": "no-path", "owner": "ghost-agent"},
+                ]
+            }
+        )
+
+    def test_cwd_in_repo_root(self, tmp_path):
+        root = tmp_path / "meta"
+        root.mkdir()
+        (tmp_path / "otaman-core").mkdir()
+        cwd = tmp_path / "otaman-core"
+        assert resolve_owner_for_cwd(self._platform(), cwd, root) == "core-agent"
+
+    def test_cwd_in_subdir_catchall(self, tmp_path):
+        root = tmp_path / "meta"
+        root.mkdir()
+        sub = tmp_path / "otaman-core" / "src" / "pkg"
+        sub.mkdir(parents=True)
+        assert resolve_owner_for_cwd(self._platform(), sub, root) == "core-agent"
+
+    def test_owner_paths_glob_override(self, tmp_path):
+        root = tmp_path / "meta"
+        root.mkdir()
+        web = tmp_path / "mono" / "apps" / "web" / "ui"
+        web.mkdir(parents=True)
+        assert resolve_owner_for_cwd(self._platform(), web, root) == "web-agent"
+
+    def test_cwd_outside_any_repo_is_none(self, tmp_path):
+        root = tmp_path / "meta"
+        root.mkdir()
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        assert resolve_owner_for_cwd(self._platform(), outside, root) is None
+
+    def test_repo_without_path_skipped(self, tmp_path):
+        # 'no-path' repo has no path → never matches a cwd
+        root = tmp_path / "meta"
+        root.mkdir()
+        outside = tmp_path / "whatever"
+        outside.mkdir()
+        assert resolve_owner_for_cwd(self._platform(), outside, root) is None
