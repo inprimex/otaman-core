@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Shared session-identity resolver** (`team-mode-registers-and-sessions` B1):
+  `identity.resolve_agent_identity(cwd, env)` — the one kernel resolver cli /
+  bridge / plugin / runner all consume (no per-repo copies, no F013 drift). Two
+  signals with **cwd-ownership authoritative**: cwd → owner via the platform.yaml
+  ownership map wins even over a set `OTAMAN_AGENT` (a poisoned env cannot claim
+  another repo's owner); `OTAMAN_AGENT` applies only when cwd is unowned; no
+  marker reads (retired). Backed by `owner_paths.resolve_owner_for_cwd` and a new
+  `RepoConfig.path` field. Distinct from the marker-only, audited
+  `resolve_enforcement_identity`.
 - **`spec-approval-pending` message type** (`spec-gate-hardening` 1.4 support):
   added to `validate_message.VALID_TYPES` — the targeted (`to: human`) triage
   item `otaman propose` enqueues for the human's awaiting-approval queue and

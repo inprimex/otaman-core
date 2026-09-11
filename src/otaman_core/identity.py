@@ -43,11 +43,14 @@ attempts are at least detectable after the fact, even where not prevented.
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from otaman_core._resolve import find_maestro_root, read_agent
+from otaman_core.owner_paths import load_platform_config, resolve_owner_for_cwd
 
 _AUDIT_LOG_RELATIVE_PATH = Path(".agents") / "audit" / "identity-resolutions.jsonl"
 
@@ -102,3 +105,48 @@ def _append_audit_entry(result: EnforcementIdentity) -> None:
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
+
+
+def resolve_agent_identity(
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+    *,
+    project_root: Path | None = None,
+) -> str | None:
+    """Resolve the acting agent's DISPLAY / session identity (team-mode B1).
+
+    The single shared session-identity resolver — one kernel implementation
+    cli, bridge, plugin, and runner all consume (no per-repo copies, no F013
+    drift). Two signals, with **cwd-ownership AUTHORITATIVE**:
+
+    1. **cwd-ownership** via the platform.yaml ownership map
+       (:func:`otaman_core.owner_paths.resolve_owner_for_cwd`). If ``cwd``
+       resolves to an owner, that owner wins — even when ``OTAMAN_AGENT`` is set
+       to something else. A poisoned or stale env var cannot override the real
+       owner of the directory the session is actually in.
+    2. **OTAMAN_AGENT** (process env), applied ONLY when ``cwd`` is not owned
+       (unresolved) — process-scoped, subordinate to cwd-ownership.
+
+    No ``.agents/current-agent`` and no ``.otaman`` marker reads — both retired
+    by Roman's B1 amendment. Returns the agent name, or ``None`` when neither
+    signal resolves (the caller decides what unresolved means).
+
+    ``env`` defaults to ``os.environ``; inject a mapping for tests. ``project_root``
+    (the directory containing platform.yaml) is auto-discovered from ``cwd`` when
+    omitted. This is distinct from :func:`resolve_enforcement_identity`, which is
+    marker-only and audited for ownership-ENFORCEMENT decisions.
+    """
+    resolved_cwd = (cwd or Path.cwd()).resolve()
+    root = project_root or find_maestro_root(resolved_cwd)
+
+    cwd_owner: str | None = None
+    if root is not None:
+        platform = load_platform_config(root / "platform.yaml")
+        if platform is not None:
+            cwd_owner = resolve_owner_for_cwd(platform, resolved_cwd, root)
+    if cwd_owner:
+        return cwd_owner
+
+    environ = env if env is not None else os.environ
+    env_agent = (environ.get("OTAMAN_AGENT") or "").strip()
+    return env_agent or None

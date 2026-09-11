@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from otaman_core.identity import resolve_enforcement_identity
+from otaman_core.identity import resolve_agent_identity, resolve_enforcement_identity
 
 AUDIT_LOG = Path(".agents") / "audit" / "identity-resolutions.jsonl"
 
@@ -140,3 +140,76 @@ class TestAuditLog:
         # Must not raise even though there's nowhere to write an audit log.
         result = resolve_enforcement_identity(lonely)
         assert result.agent is None
+
+
+class TestResolveAgentIdentity:
+    """team-mode B1: the shared DISPLAY/session resolver (cwd-owner authoritative)."""
+
+    def _project(self, tmp_path):
+        """A project_root (platform.yaml dir) + two repo dirs on disk."""
+        root = tmp_path / "meta"
+        root.mkdir()
+        (root / "platform.yaml").write_text(
+            "project: t\n"
+            "version: '1.0'\n"
+            "repos:\n"
+            "  - name: core\n"
+            "    owner: core-agent\n"
+            "    path: ../otaman-core\n"
+            "  - name: mono\n"
+            "    owner: root-agent\n"
+            "    path: ../mono\n"
+            "    owner-paths:\n"
+            "      apps/web/**: web-agent\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "otaman-core").mkdir()
+        (tmp_path / "mono" / "apps" / "web" / "ui").mkdir(parents=True)
+        return root
+
+    def test_cwd_owner_resolves(self, tmp_path):
+        root = self._project(tmp_path)
+        got = resolve_agent_identity(tmp_path / "otaman-core", {}, project_root=root)
+        assert got == "core-agent"
+
+    def test_cwd_owner_overrides_poisoned_env(self, tmp_path):
+        # THE security property: a poisoned OTAMAN_AGENT cannot override the cwd owner
+        root = self._project(tmp_path)
+        got = resolve_agent_identity(
+            tmp_path / "otaman-core", {"OTAMAN_AGENT": "evil-agent"}, project_root=root
+        )
+        assert got == "core-agent"
+
+    def test_owner_paths_glob_wins(self, tmp_path):
+        # a subdir UNDER apps/web/ matches the apps/web/** glob → web-agent
+        root = self._project(tmp_path)
+        got = resolve_agent_identity(
+            tmp_path / "mono" / "apps" / "web" / "ui", {}, project_root=root
+        )
+        assert got == "web-agent"
+
+    def test_env_used_only_when_cwd_unowned(self, tmp_path):
+        root = self._project(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        got = resolve_agent_identity(outside, {"OTAMAN_AGENT": "runner-agent"}, project_root=root)
+        assert got == "runner-agent"
+
+    def test_unresolved_is_none(self, tmp_path):
+        root = self._project(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        assert resolve_agent_identity(outside, {}, project_root=root) is None
+
+    def test_no_platform_falls_back_to_env(self, tmp_path):
+        # no platform.yaml under project_root → cwd unresolved → env
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        got = resolve_agent_identity(empty, {"OTAMAN_AGENT": "x-agent"}, project_root=empty)
+        assert got == "x-agent"
+
+    def test_blank_env_is_none(self, tmp_path):
+        root = self._project(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        assert resolve_agent_identity(outside, {"OTAMAN_AGENT": "   "}, project_root=root) is None
