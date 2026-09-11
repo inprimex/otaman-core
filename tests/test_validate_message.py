@@ -625,3 +625,27 @@ class TestSpecApprovalPendingType:
             _write_msg(tmp_path, _valid_fm(to="all", type="spec-approval-pending"))
         )
         assert any("all" in e for e in errors)
+
+
+class TestAnnounceType:
+    """bus-writer-self-validation option-b: announce is a non-privileged broadcast."""
+
+    def test_announce_to_all_ok(self, tmp_path):
+        # non-privileged: any agent may emit it (no from: human required)
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="all", type="announce")))
+        assert errors == []
+
+    def test_announce_targeted_ok(self, tmp_path):
+        errors, _ = validate_message(_write_msg(tmp_path, _valid_fm(to="human", type="announce")))
+        assert errors == []
+
+    def test_announce_passes_write_gate(self):
+        content = "---\n" + _valid_fm(to="all", type="announce") + "\n---\n\n## Subject: notice\n"
+        assert validate_message_before_write(content) == []
+
+    def test_task_complete_to_all_still_refused(self, tmp_path):
+        # the flip side of the ruling: non-broadcast to:all stays hard-refused
+        errors, _ = validate_message(
+            _write_msg(tmp_path, _valid_fm(to="all", type="task-complete"))
+        )
+        assert any("all" in e for e in errors)

@@ -49,6 +49,7 @@ except ImportError:
 #       - agent-registry-change
 #       - lifecycle-change
 #       - spec-change-approved   (human SCR-approval broadcast; privileged)
+#       - announce               (informational, non-privileged fleet notice)
 #     Any other type using `to: all` triggers a validation error.
 #
 #   x-gate-waived: <violation-slug>
@@ -126,6 +127,12 @@ VALID_TYPES = {
     # propose` enqueues for the human's awaiting-approval queue; `otaman check`
     # surfaces it. Not a broadcast (never to: all).
     "spec-approval-pending",
+    # bus-writer-self-validation (ruling option b) — the informational,
+    # non-privileged fleet broadcast type. Legit `to: all` notifications
+    # (console dispatch-unblocked, decision-audit info, …) use this instead of
+    # overloading `info` (which stays targeted). warn+allow is retired; other
+    # non-broadcast types sent `to: all` are hard-refused at write time.
+    "announce",
     # program-lifecycle-states D4 — audit broadcast of a program state transition.
     # Informational, NOT privileged: the transition itself is authority-gated in
     # the `otaman program …` command (approver role / tier / HITL); this message
@@ -181,6 +188,10 @@ _BROADCAST_TYPES = frozenset(
         "agent-registry-change",
         "lifecycle-change",
         "spec-change-approved",
+        # informational, non-privileged fleet broadcast (bus-writer-self-validation
+        # ruling option b) — the home for legit to:all notifications that are not
+        # state transitions or privileged approvals.
+        "announce",
     }
 )
 _REPLY_TO_PATTERN = re.compile(r"^[a-z][a-z0-9-]+-agent$|^human$")

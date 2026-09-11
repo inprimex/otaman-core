@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`announce` broadcast type** (`bus-writer-self-validation` ruling option b):
+  added to `validate_message` `VALID_TYPES` + `_BROADCAST_TYPES` — the
+  informational, non-privileged fleet `to: all` notification type. Legit
+  broadcasts (console dispatch-unblocked, decision-audit info) move here instead
+  of overloading `info` (which stays targeted); `warn+allow` is retired and other
+  non-broadcast types sent `to: all` are hard-refused.
 - **Shared session-identity resolver** (`team-mode-registers-and-sessions` B1):
   `identity.resolve_agent_identity(cwd, env)` — the one kernel resolver cli /
   bridge / plugin / runner all consume (no per-repo copies, no F013 drift). Two
