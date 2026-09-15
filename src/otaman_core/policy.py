@@ -338,6 +338,7 @@ GIT_PACK_NARROW_ONLY: frozenset[str] = frozenset(
         "owner_admission_required",
         "agents_merge_human_owned_branch_forbidden",
         "require_status_checks",
+        "require_changelog_fragment",
     }
 )
 
@@ -351,9 +352,23 @@ GIT_STANDARD_RULES: dict[str, Any] = {
     # live CI at generation time (design D4a), never a constant here — the fleet
     # legitimately varies (ci-ok vs lint-and-test).
     "require_status_checks": True,
+    # narrow-only INTENT: every shipped-code PR must carry a customer-facing
+    # changelog fragment (release-notes-fragments 1.1) — a lower layer may not
+    # loosen it away. The schema/convention below is config the CI check
+    # (otaman-cli 1.2) and the scaffold (otaman-plugin 1.4) read; docs/CI-only
+    # PRs are exempt via the marker.
+    "require_changelog_fragment": True,
     # non-narrow-only rules (profile/config; nearest-wins):
     "agent_self_merge_on_owned_repo": True,
     "branch_owner_convention": "<type>/<owner>/<topic>",
+    # changelog-fragment convention (config for the CI check + scaffolder).
+    # towncrier-style: one file per PR, category-prefixed, under changelog.d/.
+    "changelog_fragment": {
+        "dir": "changelog.d",
+        "filename": "<pr>.<category>.md",
+        "categories": ["feature", "fix", "doc", "removal", "misc"],
+        "exemption_marker": "changelog: exempt",
+    },
     # absorbed standards.git.* content (JTBD-45) — carried verbatim by callers:
     "branching": None,  # populated from platform.yaml standards.git.branching on init --update
     "environments": None,

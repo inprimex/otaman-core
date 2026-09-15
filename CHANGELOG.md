@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`require_changelog_fragment` git-standard rule** (`release-notes-fragments`
+  1.1): the shipped git standard now carries a narrow-only (un-loosenable)
+  `require_changelog_fragment: true` intent plus a `changelog_fragment`
+  convention config — towncrier-style `changelog.d/<pr>.<category>.md`,
+  categories `feature|fix|doc|removal|misc`, docs/CI-only exemption via a
+  `changelog: exempt` marker. The CI enforcement (cli) and scaffold (plugin)
+  read this schema.
+
 ### Fixed
 - **Ratify is monotonic; the dispatch gate stops mis-stating a ratified change**
   (`ratify-spec-approve-split` 1.1/1.2, pmeets B5+B6): `apply_ratification` now
