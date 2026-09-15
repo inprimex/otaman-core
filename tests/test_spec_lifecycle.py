@@ -312,6 +312,34 @@ class TestDispatchGate:
         d = check_dispatch_gate({"stage": "authored"}, WARN)
         assert d.allowed and d.waived
 
+    def test_ratified_but_not_spec_approved_names_the_attestation(self):
+        # ratify-spec-approve-split 1.2: don't call an existing attestation absent
+        change = {
+            "stage": "approved",
+            "change": "my-change",
+            "ratified": True,
+            "ratified_by": "roman",
+            "ratified_at": "2026-09-15T10:00:00",
+        }
+        d = check_dispatch_gate(change, BLOCK)
+        assert not d.allowed
+        v = " ".join(d.violations)
+        assert "ratified by roman" in v
+        assert "2026-09-15T10:00:00" in v
+        assert "otaman spec approve my-change" in v
+        assert "lack a HITL approval" not in v  # the human attestation is NOT called absent
+
+    def test_unratified_authored_keeps_generic_message(self):
+        d = check_dispatch_gate({"stage": "authored"}, BLOCK)
+        assert not d.allowed
+        assert any("lack a HITL approval" in v for v in d.violations)
+
+    def test_ratified_message_degrades_without_who_when(self):
+        # ratified flag set but who/when missing → still names the condition, not "absent"
+        d = check_dispatch_gate({"stage": "approved", "ratified": True}, BLOCK)
+        v = " ".join(d.violations)
+        assert "ratified by a ratifier" in v and "spec approve" in v
+
 
 class TestArchiveGate:
     def test_unapproved_refused_in_block(self):
@@ -357,13 +385,25 @@ class TestRatify:
         with pytest.raises(SpecLifecycleError):
             ratify("c", by="roman", reason="   ", at="2026-09-07T12:00:00")
 
-    def test_apply_ratification_sets_approved_and_marker(self):
+    def test_apply_ratification_sets_marker_and_attestation(self):
         r = ratify("c", by="roman", reason="retrofit", at="2026-09-07T12:00:00")
-        out = apply_ratification({"stage": "implemented"}, r)
-        assert out["stage"] == "approved"
+        out = apply_ratification({"stage": "proposed"}, r)
+        assert out["stage"] == "approved"  # below approved → floored up to approved
         assert out["ratified"] is True
-        assert "ratified:" in out["approved_by"]
-        assert "roman" in out["approved_by"]
+        assert out["ratified_by"] == "roman"
+        assert out["ratified_at"] == "2026-09-07T12:00:00"
+        assert "ratified:" in out["approved_by"] and "roman" in out["approved_by"]
+
+    def test_apply_ratification_monotonic_never_demotes(self):
+        # ratify-spec-approve-split 1.1: target = max(current, approved) by index
+        r = ratify("c", by="roman", reason="x", at="t")
+        assert apply_ratification({"stage": "spec-approved"}, r)["stage"] == "spec-approved"
+        assert apply_ratification({"stage": "implemented"}, r)["stage"] == "implemented"
+        assert apply_ratification({"stage": "authored"}, r)["stage"] == "authored"
+        assert apply_ratification({"stage": "approved"}, r)["stage"] == "approved"
+        assert apply_ratification({"stage": "proposed"}, r)["stage"] == "approved"
+        assert apply_ratification({"stage": "pre-proposal"}, r)["stage"] == "approved"
+        assert apply_ratification({}, r)["stage"] == "approved"  # absent → approved
 
     def test_apply_ratification_is_pure(self):
         r = ratify("c", by="roman", reason="x", at="2026-09-07T12:00:00")

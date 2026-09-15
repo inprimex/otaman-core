@@ -422,7 +422,17 @@ def check_dispatch_gate(
         return GateDecision(gate="dispatch", allowed=True, mode=policy.enforcement)
     violations: list[str] = []
     if not spec_approved_reached(change):
-        violations.append("not spec-approved (authored artifacts lack a HITL approval)")
+        if change.get("ratified") is True:
+            # A human attestation EXISTS — name it, don't call it absent (1.2).
+            who = change.get("ratified_by") or "a ratifier"
+            when = change.get("ratified_at") or "an earlier time"
+            name = change.get("change") or change.get("name") or "<change>"
+            violations.append(
+                f"ratified by {who} at {when} but never advanced to spec-approved — "
+                f"run `otaman spec approve {name}`"
+            )
+        else:
+            violations.append("not spec-approved (authored artifacts lack a HITL approval)")
     return _decide("dispatch", policy, violations)
 
 
@@ -481,15 +491,35 @@ def ratify(change: str, *, by: str, reason: str, at: str) -> Ratification:
 
 
 def apply_ratification(change_dict: dict[str, Any], ratification: Ratification) -> dict[str, Any]:
-    """Return ``change_dict`` updated with the ratified approval + ``approved`` stage.
+    """Return ``change_dict`` updated with the ratified approval, stage MONOTONIC.
 
-    Records ``approved_by`` as a ratified marker, sets ``stage: approved`` and
-    ``ratified: true`` — the shape ``set_stage`` / the CI gate read back. Pure:
-    returns a new dict, does not mutate the input.
+    The resulting stage is ``max(current, "approved")`` by :data:`STAGES` index —
+    ratification is a floor at ``approved`` and NEVER moves the stage backward
+    (ratify-spec-approve-split 1.1). Re-ratifying a ``spec-approved`` (or later)
+    change keeps its stage; ratifying a change at/below ``approved`` sets
+    ``approved``. Advancing an ``authored`` change to ``spec-approved`` is a
+    SEPARATE, approver-hat action (:func:`apply_spec_approved`, driven by the
+    cli ratify/approve verbs), not this function.
+
+    Records ``ratified: true`` plus ``ratified_by`` / ``ratified_at`` (so the
+    dispatch gate can name the attestation) and an ``approved_by`` ratified
+    marker. Pure: returns a new dict, does not mutate the input.
     """
     out = dict(change_dict)
-    out["stage"] = "approved"
+    current = out.get("stage")
+    floor = "approved"
+    if (
+        isinstance(current, str)
+        and current in STAGES
+        and stage_index(current) >= stage_index(floor)
+    ):
+        target = current  # already at/past approved — never demote
+    else:
+        target = floor
+    out["stage"] = target
     out["ratified"] = True
+    out["ratified_by"] = ratification.by
+    out["ratified_at"] = ratification.at
     out["approved_by"] = f"ratified: {ratification.by} — {ratification.reason}"
     return out
 
