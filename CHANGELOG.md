@@ -28,13 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Per-human config_dir resolver** (`team-mode-registers-and-sessions` 2.3a):
-  `accounts.resolve_human_config_dir(org_root, human_sub) -> Path | None` — the
-  one kernel parser of `launch-settings.yaml` `accounts:`, resolving the
-  `CLAUDE_CONFIG_DIR` for an acting human via the explicit `human:` field
-  (email/roster id; case-insensitive). Absent accounts / unmapped human /
-  missing `config_dir` → `None` (caller falls back to the shared default,
-  loudly; never raises). `~`/`$VAR` expanded; values-free (a path, never
-  credentials). Runner (v0.2.11) consumes it; the launcher migrates onto it.
+  `accounts.resolve_human_config_dir(org_root, human_sub, *, roster=None) -> Path | None`
+  — the one kernel parser of `launch-settings.yaml` `accounts:`, resolving the
+  `CLAUDE_CONFIG_DIR` for an acting human via the explicit `human:` field. With
+  `roster=` (the program's `load_human_roster` result) it matches by **roster
+  equivalence** (name = slug = email = local-part, via `resolve_roster_human`);
+  without it, case-insensitive exact match (safe interim). Org-level mapping vs
+  program-level roster — a result is only meaningful for the roster handed in
+  (never cache across programs). Absent accounts / unmapped human / missing
+  `config_dir` → `None` (caller falls back to the shared default, loudly; never
+  raises). `~`/`$VAR` expanded; values-free. Runner (v0.2.11) consumes it.
 - **`announce` broadcast type** (`bus-writer-self-validation` ruling option b):
   added to `validate_message` `VALID_TYPES` + `_BROADCAST_TYPES` — the
   informational, non-privileged fleet `to: all` notification type. Legit
