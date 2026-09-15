@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Ratify is monotonic; the dispatch gate stops mis-stating a ratified change**
+  (`ratify-spec-approve-split` 1.1/1.2, pmeets B5+B6): `apply_ratification` now
+  sets the stage to `max(current, "approved")` by `STAGES` index — never
+  backward (re-ratifying a `spec-approved` change keeps it there) — and records
+  `ratified_by`/`ratified_at`. `check_dispatch_gate`, when a change is
+  `ratified: true` but below `spec-approved`, names the real condition
+  ("ratified by X at T … run `otaman spec approve <change>`") instead of
+  claiming the artifacts lack a human approval.
+
 ### Added
 - **Per-human config_dir resolver** (`team-mode-registers-and-sessions` 2.3a):
   `accounts.resolve_human_config_dir(org_root, human_sub) -> Path | None` — the
