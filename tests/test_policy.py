@@ -274,6 +274,27 @@ class TestShippedStandard:
         assert eff.rules["require_status_checks"] is True
         assert any(v.rule == "require_status_checks" for v in viol)
 
+    def test_git_standard_requires_changelog_fragment_narrow_only(self):
+        # release-notes-fragments 1.1: intent is narrow-only (un-loosenable);
+        # the convention schema is config the CI check + scaffolder read.
+        p = shipped_standard("git")
+        assert p.rules["require_changelog_fragment"] is True
+        assert "require_changelog_fragment" in GIT_PACK_NARROW_ONLY
+        conv = p.rules["changelog_fragment"]
+        assert conv["dir"] == "changelog.d"
+        assert conv["filename"] == "<pr>.<category>.md"
+        assert set(conv["categories"]) == {"feature", "fix", "doc", "removal", "misc"}
+        assert conv["exemption_marker"] == "changelog: exempt"
+
+    def test_require_changelog_fragment_cannot_be_loosened(self):
+        layers = [
+            ("program", Policy("git", "standard", {"require_changelog_fragment": True})),
+            ("agent", Policy("git", "loose", {"require_changelog_fragment": False})),
+        ]
+        eff, viol = compose(layers, GIT_PACK_NARROW_ONLY)
+        assert eff.rules["require_changelog_fragment"] is True
+        assert any(v.rule == "require_changelog_fragment" for v in viol)
+
     def test_unknown_pack_raises(self):
         with pytest.raises(PolicyError):
             shipped_standard("nope")
