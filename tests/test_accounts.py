@@ -104,3 +104,64 @@ def test_never_returns_credentials_only_a_path(tmp_path):
     result = resolve_human_config_dir(org, "r")
     assert result == Path("/c/r")
     assert "SECRET" not in str(result)
+
+
+from otaman_core.human_roster import HumanRosterEntry  # noqa: E402
+
+
+class TestRosterEquivalence:
+    """2.3a upgrade: roster= makes human: match by roster equivalence (name/slug/email)."""
+
+    def _roster(self):
+        return [
+            HumanRosterEntry(name="Roman", email="roman@inprimex.com", roles=["approver"]),
+            HumanRosterEntry(name="Dev", email="dev@x.com", roles=["developer"]),
+        ]
+
+    def test_name_ref_matches_email_sub(self, tmp_path):
+        # account human: is the NAME, acting sub is the EMAIL — same person via roster
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(org, {"accounts": {"a": {"human": "Roman", "config_dir": "/c/roman"}}})
+        got = resolve_human_config_dir(org, "roman@inprimex.com", roster=self._roster())
+        assert got == Path("/c/roman")
+
+    def test_email_ref_matches_slug_sub(self, tmp_path):
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(org, {"accounts": {"a": {"human": "roman@inprimex.com", "config_dir": "/c/r"}}})
+        # name-slug acting sub resolves to the same roster entry
+        assert resolve_human_config_dir(org, "roman", roster=self._roster()) == Path("/c/r")
+
+    def test_sub_not_in_roster_is_none(self, tmp_path):
+        # program-level: a human absent from THIS roster → None (correct, not a bug)
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(org, {"accounts": {"a": {"human": "Roman", "config_dir": "/c/r"}}})
+        assert resolve_human_config_dir(org, "stranger@x.com", roster=self._roster()) is None
+
+    def test_account_human_not_in_roster_skipped(self, tmp_path):
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(
+            org,
+            {
+                "accounts": {
+                    "ghost": {"human": "nobody@x.com", "config_dir": "/c/ghost"},
+                    "roman": {"human": "Roman", "config_dir": "/c/roman"},
+                }
+            },
+        )
+        assert resolve_human_config_dir(org, "roman@inprimex.com", roster=self._roster()) == Path(
+            "/c/roman"
+        )
+
+    def test_roster_none_keeps_string_match(self, tmp_path):
+        # backward-compat: no roster → exact string match (name != email → miss)
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(org, {"accounts": {"a": {"human": "Roman", "config_dir": "/c/r"}}})
+        assert (
+            resolve_human_config_dir(org, "roman@inprimex.com") is None
+        )  # no roster, strings differ
+        assert resolve_human_config_dir(org, "Roman") == Path("/c/r")  # exact (case-insensitive)
+
+    def test_empty_roster_matches_nobody(self, tmp_path):
+        org = tmp_path / "orgs" / "acme"
+        _write_ls(org, {"accounts": {"a": {"human": "Roman", "config_dir": "/c/r"}}})
+        assert resolve_human_config_dir(org, "roman@inprimex.com", roster=[]) is None

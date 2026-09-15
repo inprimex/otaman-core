@@ -25,6 +25,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from otaman_core.human_roster import HumanRosterEntry
+
 
 def launch_settings_path(org_root: Path) -> Path:
     """The org launch-settings file: ``<org_root>/launch-settings.yaml``."""
@@ -51,33 +53,76 @@ def _expand(config_dir: str) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(config_dir)))
 
 
-def resolve_human_config_dir(org_root: Path, human_sub: str) -> Path | None:
+def resolve_human_config_dir(
+    org_root: Path,
+    human_sub: str,
+    *,
+    roster: list[HumanRosterEntry] | None = None,
+) -> Path | None:
     """Resolve the ``CLAUDE_CONFIG_DIR`` for an acting human (team-mode 2.3a).
 
     Reads ``<org_root>/launch-settings.yaml`` ``accounts:`` and returns the
-    expanded ``config_dir`` of the account whose ``human:`` field matches
-    ``human_sub`` (case-insensitively — the field is an email or roster id).
-    Returns ``None`` when: the accounts block is absent, no account maps to
-    ``human_sub``, or the matched account carries no ``config_dir``. The caller
-    treats ``None`` as "use the shared default, loudly" — this never raises.
+    expanded ``config_dir`` of the account whose ``human:`` field identifies the
+    acting human. Matching:
 
-    The ``~`` / ``$VAR`` in ``config_dir`` are expanded; the path is returned
-    whether or not it exists (the caller decides). Values-free: a directory
-    locator only, never credentials.
+    - ``roster`` given (the program's ``load_human_roster`` result): ROSTER
+      EQUIVALENCE — the account matches when its ``human:`` ref resolves to the
+      SAME roster entry as ``human_sub`` via
+      :func:`~otaman_core.human_roster.resolve_roster_human` (so ``roman``,
+      ``roman@x.com``, and the name-slug all match one person). If ``human_sub``
+      does not resolve in this roster, the answer is ``None`` — correct, not a
+      bug (see the org-vs-program note below).
+    - ``roster`` omitted: case-insensitive exact string match on the ``human:``
+      field — the safe interim (a hit works; a miss returns ``None``, never
+      another person's dir).
+
+    ORG-vs-PROGRAM SCOPING (do not memoize across programs): the account→human
+    mapping is ORG-level (one ``launch-settings.yaml``), but roster equivalence
+    is PROGRAM-level (``platform.yaml`` is per-program). The same
+    ``human: "roman@x.com"`` can legitimately resolve in program A and not in
+    program B whose roster lacks that person — so a result (including ``None``)
+    is only meaningful relative to the ``roster`` handed in, and must never be
+    cached org-wide. The caller passes the roster it loaded for the acting
+    program's ``platform.yaml``.
+
+    Returns ``None`` when the accounts block is absent, no account maps to the
+    human, or the matched account has no ``config_dir``. The caller treats
+    ``None`` as "use the shared default, loudly" — this never raises. ``~`` /
+    ``$VAR`` are expanded; the path is returned whether or not it exists.
+    Values-free: a directory locator only, never credentials.
     """
+    accounts = _load_accounts(org_root)
+
+    if roster is not None:
+        from otaman_core.human_roster import resolve_roster_human
+
+        target = resolve_roster_human(roster, human_sub)
+        if target is None:
+            return None  # acting human not in this program's roster
+        for account in accounts.values():
+            if not isinstance(account, dict):
+                continue
+            if resolve_roster_human(roster, account.get("human")) == target:
+                return _config_dir_of(account)
+        return None
+
     sub = (human_sub or "").strip().lower()
     if not sub:
         return None
-    for account in _load_accounts(org_root).values():
+    for account in accounts.values():
         if not isinstance(account, dict):
             continue
         human = account.get("human")
-        if not (isinstance(human, str) and human.strip().lower() == sub):
-            continue
-        config_dir = account.get("config_dir")
-        if isinstance(config_dir, str) and config_dir.strip():
-            return _expand(config_dir)
-        return None  # matched the human but no config_dir declared
+        if isinstance(human, str) and human.strip().lower() == sub:
+            return _config_dir_of(account)
+    return None
+
+
+def _config_dir_of(account: dict[str, Any]) -> Path | None:
+    """The expanded ``config_dir`` of a matched account, or ``None`` if unset."""
+    config_dir = account.get("config_dir")
+    if isinstance(config_dir, str) and config_dir.strip():
+        return _expand(config_dir)
     return None
 
 
