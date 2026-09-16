@@ -334,11 +334,26 @@ class TestDispatchGate:
         assert not d.allowed
         assert any("lack a HITL approval" in v for v in d.violations)
 
+    def test_ratifier_parsed_from_approved_by_marker(self):
+        # gate 2.1 finding: no ratified_by field, but the name is in the marker
+        change = {
+            "stage": "approved",
+            "change": "contradictory-change",
+            "ratified": True,
+            "ratified_at": "2026-09-13T21:05:54Z",
+            "approved_by": "ratified: starikov@inprimex.com — merged before approval",
+        }
+        d = check_dispatch_gate(change, BLOCK)
+        v = " ".join(d.violations)
+        assert "ratified by starikov@inprimex.com" in v  # parsed, not "the ratifier"
+        assert "otaman spec approve contradictory-change" in v
+
     def test_ratified_message_degrades_without_who_when(self):
-        # ratified flag set but who/when missing → still names the condition, not "absent"
+        # ratified flag set but no ratified_by AND no parseable marker → generic,
+        # still names the condition (never "absent")
         d = check_dispatch_gate({"stage": "approved", "ratified": True}, BLOCK)
         v = " ".join(d.violations)
-        assert "ratified by a ratifier" in v and "spec approve" in v
+        assert "ratified by the ratifier" in v and "spec approve" in v
 
 
 class TestArchiveGate:
