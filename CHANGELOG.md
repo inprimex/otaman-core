@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ratified_by`/`ratified_at`. `check_dispatch_gate`, when a change is
   `ratified: true` but below `spec-approved`, names the real condition
   ("ratified by X at T … run `otaman spec approve <change>`") instead of
-  claiming the artifacts lack a human approval.
+  claiming the artifacts lack a human approval. The ratifier is recovered from
+  the `approved_by` ratified marker when the `ratified_by` field is absent
+  (gate 2.1 finding), so the message names the real human, not "the ratifier".
 
 ### Added
 - **Per-human config_dir resolver** (`team-mode-registers-and-sessions` 2.3a):

@@ -18,6 +18,7 @@ layer (D8).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -409,6 +410,25 @@ def check_merge_gate(
     return _decide("merge", policy, violations)
 
 
+def _ratifier_from_marker(approved_by: Any) -> str | None:
+    """Extract the ratifier from an ``approved_by`` ratified marker, or ``None``.
+
+    :func:`apply_ratification` writes ``approved_by`` as ``"ratified: <who> — <reason>"``.
+    When ``ratified_by`` is absent (e.g. a record the cli ratify path wrote), the
+    ratifier is still recoverable from that marker so the dispatch gate names the
+    real human instead of "the ratifier" (ratify-spec-approve-split gate 2.1).
+    """
+    if not isinstance(approved_by, str):
+        return None
+    text = approved_by.strip()
+    if not text.lower().startswith("ratified:"):
+        return None
+    rest = text.split(":", 1)[1]
+    # the reason follows an em-dash or " - "; keep only the identity before it
+    who = re.split(r"\s—\s|\s-\s", rest, maxsplit=1)[0].strip()
+    return who or None
+
+
 def check_dispatch_gate(
     change: Mapping[str, Any],
     policy: SpecPolicy,
@@ -424,7 +444,16 @@ def check_dispatch_gate(
     if not spec_approved_reached(change):
         if change.get("ratified") is True:
             # A human attestation EXISTS — name it, don't call it absent (1.2).
-            who = change.get("ratified_by") or "a ratifier"
+            # The ratifier is in ratified_by, or parseable from the approved_by
+            # marker ("ratified: <who> — <reason>") on records the cli wrote
+            # without the field (gate 2.1 finding). The change NAME, when the
+            # caller puts it on the record, is used verbatim; cli interpolates it
+            # at the render site otherwise (check_dispatch_gate has only the record).
+            who = (
+                change.get("ratified_by")
+                or _ratifier_from_marker(change.get("approved_by"))
+                or "the ratifier"
+            )
             when = change.get("ratified_at") or "an earlier time"
             name = change.get("change") or change.get("name") or "<change>"
             violations.append(
