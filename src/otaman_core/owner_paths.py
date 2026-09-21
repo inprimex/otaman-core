@@ -17,14 +17,21 @@ This module defines the typed representation (:class:`RepoConfig`,
 (:func:`resolve_owner_for_path`, :func:`resolve_owners_for_paths`) consumed
 by the bus dispatcher and CLI helpers.
 
-Glob semantics follow gitignore conventions: ``**`` matches zero or more
-path segments, ``*`` matches within a single segment, and the
-specificity tie-break is by pattern length (longer pattern wins).
+Glob semantics are the ruled ones (shared-logic-single-home 1.4), homed here as
+the ONE matcher every "who owns this path" surface consumes:
+
+  - ``**`` crosses path segments; ``*`` and ``?`` match WITHIN one segment and
+    never cross ``/`` (so ``*`` does not match ``a/b.py`` — that needs ``**``);
+  - a wildcard-free pattern is a bare name: it matches that exact path OR its
+    whole subtree (``src`` matches ``src`` and ``src/x.py`` — i.e. ``src/**``);
+  - every pattern is anchored at the repo root (``src`` does NOT match
+    ``foo/src/x.py``);
+  - the specificity tie-break is by pattern length (longer pattern wins).
 """
 
 from __future__ import annotations
 
-import fnmatch
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -162,67 +169,56 @@ def load_platform_config(platform_yaml_path: Path) -> PlatformConfig | None:
 
 
 # ---------------------------------------------------------------------------
-# Glob matching (gitignore semantics, simplified for Phase 1)
+# Glob matching (the ruled semantics — shared-logic-single-home 1.4)
 
 
-def _match_path(path: str, pattern: str) -> bool:
-    """Return True iff ``path`` matches the gitignore-style ``pattern``.
-
-    Supported syntax (Phase 1):
-      - ``**`` matches zero or more path segments (greedy across ``/``)
-      - ``*``  matches within a single segment (no ``/``)
-      - Leading ``/`` anchors to the (notional) repo root
-      - A pattern with no ``/`` matches the basename at any depth
-      - Negation (``!``) is NOT supported — spec explicitly excludes it
-
-    Implementation: translate the pattern to a regex and match. Python's
-    ``fnmatch.translate`` doesn't handle ``**`` correctly across slashes,
-    so we do a small translation pass ourselves.
-    """
-    import re
-
-    norm = path.strip("/").replace("\\", "/")
-
-    anchored = pattern.startswith("/")
-    pat = pattern.lstrip("/")
-
-    # A pattern with no slash matches the basename at any depth.
-    if "/" not in pat:
-        # Phase 1: anchored "/foo" still has no inner slash → match root only;
-        # plain "foo" → match basename anywhere.
-        if anchored:
-            return _match_segment(norm.split("/")[0], pat) and "/" not in norm
-        for segment in norm.split("/"):
-            if _match_segment(segment, pat):
-                return True
-        return False
-
-    # Translate ** and * to regex
-    regex_parts = []
+def _glob_to_regex(pat: str) -> str:
+    """Anchored regex for a wildcard pattern: ``**`` crosses ``/``, ``*``/``?`` do not."""
+    parts: list[str] = []
     i = 0
     while i < len(pat):
         if pat[i : i + 3] == "**/":
-            regex_parts.append("(?:.*/)?")
+            parts.append("(?:.*/)?")  # `**/foo` also matches `foo` at the root
             i += 3
         elif pat[i : i + 2] == "**":
-            regex_parts.append(".*")
+            parts.append(".*")  # crosses segments
             i += 2
         elif pat[i] == "*":
-            regex_parts.append("[^/]*")
+            parts.append("[^/]*")  # within one segment
             i += 1
         elif pat[i] == "?":
-            regex_parts.append("[^/]")
+            parts.append("[^/]")  # one char, not `/`
             i += 1
         else:
-            regex_parts.append(re.escape(pat[i]))
+            parts.append(re.escape(pat[i]))
             i += 1
-    regex = "^" + "".join(regex_parts) + "$"
-    return re.match(regex, norm) is not None
+    return "^" + "".join(parts) + "$"
 
 
-def _match_segment(segment: str, pattern: str) -> bool:
-    """fnmatch within a single path segment (no slashes)."""
-    return fnmatch.fnmatchcase(segment, pattern)
+def path_matches(path: str, pattern: str) -> bool:
+    """Whether *path* is owned by *pattern* under the ruled owner-paths semantics.
+
+    The single matcher every "who owns this path" surface consumes (the console,
+    ``whoami --for-path``, the bus dispatcher, spec_critique_dispatch). Both
+    arguments are repo-relative POSIX paths; matching is anchored at the repo
+    root:
+
+      - a WILDCARD-FREE pattern is a bare name — it matches that exact path or
+        its whole subtree (``src`` → ``src`` and ``src/x.py``; the ruled
+        "bare directory means ``<dir>/**``"), and nothing at another depth
+        (``src`` does NOT match ``foo/src/x.py``);
+      - a pattern with ``*``/``?``/``**`` is matched as an anchored glob where
+        ``*``/``?`` stay within one segment and only ``**`` crosses ``/`` (so
+        ``*`` does NOT match ``a/b.py``).
+    """
+    norm = path.strip("/").replace("\\", "/")
+    pat = pattern.strip("/").replace("\\", "/")
+    if not pat:
+        return False
+    if not any(ch in pat for ch in "*?"):
+        # Bare name: the exact path, or its subtree.
+        return norm == pat or norm.startswith(f"{pat}/")
+    return re.match(_glob_to_regex(pat), norm) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +247,7 @@ def resolve_owner_for_path(
 
     best: tuple[int, str] | None = None
     for pattern, agent in repo.owner_paths.items():
-        if _match_path(path, pattern):
+        if path_matches(path, pattern):
             specificity = len(pattern)
             if best is None or specificity > best[0]:
                 best = (specificity, agent)
@@ -327,9 +323,9 @@ def validate_owner_paths(
         Phase 1 tie-break is "first declared wins", but operators should
         know the overlap exists.
 
-    Phase 1 does NOT validate glob syntax (Python's fnmatch + our
-    translator are tolerant). Operators using exotic patterns get
-    surprising matches; that's a Phase 2 improvement if it bites.
+    Phase 1 does NOT validate glob syntax (the matcher is tolerant).
+    Operators using exotic patterns get surprising matches; that's a
+    Phase 2 improvement if it bites.
     """
     issues: list[OwnerPathsIssue] = []
     for repo in platform.repos:
@@ -359,7 +355,7 @@ def validate_owner_paths(
                     continue
                 # Use a representative path: strip glob chars from p1.
                 probe = p1.replace("**", "x").replace("*", "x").replace("?", "x")
-                if _match_path(probe, p1) and _match_path(probe, p2):
+                if path_matches(probe, p1) and path_matches(probe, p2):
                     issues.append(
                         OwnerPathsIssue(
                             severity="warning",
@@ -380,6 +376,7 @@ __all__ = [
     "RepoConfig",
     "load_platform_config",
     "parse_platform_config",
+    "path_matches",
     "resolve_owner_for_path",
     "resolve_owners_for_paths",
     "validate_owner_paths",
