@@ -13,9 +13,9 @@ from otaman_core.owner_paths import (
     OwnerPathsError,
     PlatformConfig,
     RepoConfig,
-    _match_path,
     load_platform_config,
     parse_platform_config,
+    path_matches,
     resolve_owner_for_cwd,
     resolve_owner_for_path,
     resolve_owners_for_paths,
@@ -173,32 +173,53 @@ class TestLoadPlatformConfig:
 
 
 # ---------------------------------------------------------------------------
-# _match_path — glob semantics
+# path_matches — glob semantics
 
 
 class TestMatchPath:
     def test_double_star_matches_all_depths(self):
-        assert _match_path("apps/web/index.tsx", "apps/web/**")
-        assert _match_path("apps/web/components/Btn.tsx", "apps/web/**")
+        assert path_matches("apps/web/index.tsx", "apps/web/**")
+        assert path_matches("apps/web/components/Btn.tsx", "apps/web/**")
 
     def test_double_star_does_not_match_wrong_root(self):
-        assert not _match_path("apps/api/server.py", "apps/web/**")
+        assert not path_matches("apps/api/server.py", "apps/web/**")
 
     def test_single_star_within_segment(self):
-        assert _match_path("packages/x/index.ts", "packages/*/index.ts")
-        assert not _match_path("packages/x/sub/index.ts", "packages/*/index.ts")
+        assert path_matches("packages/x/index.ts", "packages/*/index.ts")
+        assert not path_matches("packages/x/sub/index.ts", "packages/*/index.ts")
 
-    def test_basename_pattern_at_any_depth(self):
-        assert _match_path("README.md", "*.md")
-        assert _match_path("docs/guide/intro.md", "*.md")
+    def test_single_star_stays_in_its_segment(self):
+        """Ruled semantics (shared-logic-single-home 1.4): `*` does not cross `/`,
+        so `*.md` matches a root-level .md but NOT one nested under a directory —
+        that needs `**`. (Previously `*.md` matched at any depth.)"""
+        assert path_matches("README.md", "*.md")
+        assert not path_matches("docs/guide/intro.md", "*.md")
+        assert path_matches("docs/guide/intro.md", "**/*.md")
+
+    def test_bare_star_does_not_cross_slash(self):
+        """The ruling's own probe: `*` matches a single root segment, not `a/b.py`."""
+        assert path_matches("a.py", "*")
+        assert not path_matches("a/b.py", "*")
+
+    def test_bare_directory_means_its_subtree(self):
+        """The ruling's own probe: a wildcard-free name matches the exact path or
+        its whole subtree (`src` == `src/**`), anchored at the repo root."""
+        assert path_matches("src", "src")
+        assert path_matches("src/x.py", "src")
+        assert not path_matches("foo/src/x.py", "src")  # anchored — not any depth
 
     def test_anchored_root_pattern(self):
-        assert _match_path("README.md", "/README.md")
-        assert not _match_path("docs/README.md", "/README.md")
+        assert path_matches("README.md", "/README.md")
+        assert not path_matches("docs/README.md", "/README.md")
 
     def test_exact_path(self):
-        assert _match_path("apps/web/package.json", "apps/web/package.json")
-        assert not _match_path("apps/api/package.json", "apps/web/package.json")
+        assert path_matches("apps/web/package.json", "apps/web/package.json")
+        assert not path_matches("apps/api/package.json", "apps/web/package.json")
+
+    def test_wildcard_free_directory_prefix_owns_subtree(self):
+        assert path_matches("apps/web/src/App.tsx", "apps/web")
+        assert path_matches("apps/web", "apps/web")
+        assert not path_matches("apps/webx/y", "apps/web")  # prefix must be a full segment
 
 
 # ---------------------------------------------------------------------------
