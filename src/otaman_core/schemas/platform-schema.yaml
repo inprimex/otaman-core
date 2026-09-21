@@ -597,6 +597,23 @@ properties:
         description: >
           Process-level opt-in flags (e.g., outcomes.enabled: true,
           solutions.enabled: true). Keys mirror registry names.
+      skills:
+        type: object
+        additionalProperties: false
+        description: >
+          Skill-pack ACTIVATION CONFIG (which pack profile is on), per
+          skill-activation-config-split. Distinct from program.processes.skills,
+          which is reserved for the skills REGISTRY — a registry is rows with ids
+          and a lifecycle; this is a switch.
+        properties:
+          profile:
+            type: string
+            description: "Pack profile id, e.g. tech-startup-cofounder."
+          extra:
+            type: array
+            items:
+              type: string
+            description: "Additional skill ids activated alongside the profile."
       roles:
         type: array
         description: "Role definitions for role-based routing and task assignment."
