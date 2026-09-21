@@ -167,6 +167,25 @@ def test_tombstone_leaves_siblings_alone():
     assert [e.kind for e in live] == [KIND_APPROVAL]  # the approval wait survives
 
 
+def test_clearing_a_non_last_entry_keeps_later_entries_visible():
+    """REGRESSION (plugin-agent repro 20260921T151120): parse_entries captures the
+    separator blank line into entry.block; a bare rstrip() in tombstone() ate it,
+    so the closing `-->` glued onto the NEXT entry's header — no longer
+    line-leading, so parse_entries could not see it. Clearing the FIRST of two
+    entries then silently hid the second (and every entry after) — the exact
+    "invisible in one transport" failure this module exists to kill. The earlier
+    sibling tests only tombstoned the LAST entry, so none caught it."""
+    text = (
+        "\n## Blocked: first\n- **Proposal**: p\n- **Blocked since**: t\n\n"
+        "## Blocked: second\n- **Change**: d\n- **Blocked since**: t\n"
+    )
+    first = [e for e in parse_entries(text) if e.title == "first"]
+    out = tombstone(text, first, reason="r", today="2026-09-21")
+    assert [e.title for e in parse_entries(out)] == ["second"]
+    # and the cleared entry is still recognisable as tombstoned
+    assert [e.title for e in parse_entries(out, include_tombstoned=True)] == ["first", "second"]
+
+
 # ---------------------------------------------------------------------------
 # rendering (additive Kind)
 

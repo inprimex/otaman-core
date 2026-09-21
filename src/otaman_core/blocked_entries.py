@@ -209,8 +209,16 @@ def tombstone(text: str, entries: list[BlockedEntry], *, reason: str, today: str
     for entry in entries:
         if entry.tombstoned or entry.block not in out:
             continue
+        # parse_entries captures the trailing blank line(s) into entry.block; a
+        # bare rstrip() here would eat them, gluing the closing `-->` onto the
+        # NEXT entry's header so it is no longer line-leading and parse_entries
+        # cannot see it — clearing one entry would silently hide every live entry
+        # after it (plugin-agent repro 20260921T151120), the exact failure this
+        # module exists to kill. Preserve the separator by re-appending it.
+        stripped = entry.block.rstrip()
+        trailing = entry.block[len(stripped) :]
         trailer = f"\ncleared {today} — {reason} -->"
-        out = out.replace(entry.block, "<!-- " + entry.block.rstrip() + trailer, 1)
+        out = out.replace(entry.block, "<!-- " + stripped + trailer + trailing, 1)
     return out
 
 
