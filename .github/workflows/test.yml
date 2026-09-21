@@ -63,13 +63,60 @@ jobs:
         if: runner.os != 'Windows'
         run: bash scripts/audit-maestro-refs.sh src/
 
+  # Changelog-fragment gate (release-notes-sibling-coverage 2.2): every
+  # shipped-code PR carries a customer-facing changelog fragment, or the release
+  # notes silently understate the release. The check is CORE-INVOKABLE — the one
+  # identical line every sibling wires (1.3), NOT a repo-local script — so core,
+  # bridge, and the other CLI-less repos all gate the same way. cli's
+  # `otaman policy check-changelog` is the same logic for humans.
+  changelog:
+    name: changelog-fragment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # full history so the base...HEAD merge-base diff resolves
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install package
+        run: uv sync
+
+      - name: Fetch base ref
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Write PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" > "${RUNNER_TEMP}/pr_body.txt"
+
+      - name: Changelog fragment gate
+        run: >
+          uv run python -m otaman_core.changelog_fragment
+          --check
+          --base "origin/${{ github.base_ref }}"
+          --pr "${{ github.event.pull_request.number }}"
+          --pr-body-file "${RUNNER_TEMP}/pr_body.txt"
+
   # Aggregate gate: the single, rename-/matrix-churn-proof required check for
-  # branch protection on main (fleet-uniform). `needs: [test]` waits for every
-  # matrix leg; if any leg fails, ci-ok is skipped, which GitHub treats as
-  # not-passed — so this blocks merges correctly with plain `needs:`.
+  # branch protection on main (fleet-uniform). `needs:` waits for every matrix
+  # leg and the changelog gate; if any fails, ci-ok is skipped, which GitHub
+  # treats as not-passed — so this blocks merges correctly. `changelog` is
+  # skipped on push (PR-only), and a skipped need does not block ci-ok.
   ci-ok:
     name: ci-ok
-    needs: [test]
+    needs: [test, changelog]
     runs-on: ubuntu-latest
     steps:
       - run: echo ok
