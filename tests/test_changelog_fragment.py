@@ -23,6 +23,7 @@ from otaman_core.changelog_fragment import (
     fragment_required_by_policy,
     has_exemption,
     is_shipped_path,
+    main,
     resolve_fragment_config,
     shipped_paths,
 )
@@ -273,3 +274,65 @@ def test_empty_diff_is_not_a_block():
 def test_reason_is_always_populated():
     for paths in ([], ["src/a.py"], ["docs/x.md"], ["src/a.py", "changelog.d/1.fix.md"]):
         assert evaluate(paths, CORE_RULES, pr=1).reason
+
+
+# ---------------------------------------------------------------------------
+# 1.3 — the core-invokable gate entry (python -m otaman_core.changelog_fragment)
+
+
+def test_gate_refuses_shipped_code_without_a_fragment(capsys):
+    rc = main(["--check", "--paths", "src/a.py"])
+    assert rc == 3  # matches cli's _GUARD_REFUSED
+    err = capsys.readouterr().err
+    assert "Refused" in err and "changelog.d" in err
+
+
+def test_gate_passes_with_a_fragment(capsys):
+    rc = main(["--check", "--paths", "src/a.py", "changelog.d/12.fix.md"])
+    assert rc == 0
+    assert "OK" in capsys.readouterr().out
+
+
+def test_gate_passes_docs_only():
+    assert main(["--check", "--paths", "docs/x.md", "README.md"]) == 0
+
+
+def test_gate_honors_the_exemption_marker(tmp_path):
+    body = tmp_path / "pr_body.txt"
+    body.write_text("docs only\n\nchangelog: exempt\n", encoding="utf-8")
+    assert main(["--check", "--paths", "src/a.py", "--pr-body-file", str(body)]) == 0
+
+
+def test_gate_pr_specific_fragment():
+    rc = main(["--check", "--paths", "src/a.py", "changelog.d/148.feature.md", "--pr", "148"])
+    assert rc == 0
+
+
+def test_gate_json_verdict(capsys):
+    import json
+
+    rc = main(["--check", "--paths", "src/a.py", "--json"])
+    assert rc == 3
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False and data["shipped_files"] == ["src/a.py"]
+
+
+def test_gate_requires_the_check_flag():
+    with pytest.raises(SystemExit) as exc:
+        main(["--base", "origin/main"])
+    assert exc.value.code == 2
+
+
+def test_gate_reports_git_diff_failure_as_exit_2(monkeypatch, capsys):
+    import otaman_core.changelog_fragment as cf
+
+    monkeypatch.setattr(cf, "_changed_paths_from_git", lambda base: ([], "git diff failed: boom"))
+    rc = main(["--check", "--base", "origin/main"])
+    assert rc == 2
+    assert "git diff failed" in capsys.readouterr().err
+
+
+def test_gate_missing_pr_body_file_is_exit_2(capsys):
+    rc = main(["--check", "--paths", "src/a.py", "--pr-body-file", "/nonexistent/nope.txt"])
+    assert rc == 2
+    assert "cannot read" in capsys.readouterr().err

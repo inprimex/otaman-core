@@ -19,6 +19,13 @@ assembler must evaluate fragments and cannot import otaman-cli (the scr_template
 wheel bind). The evaluators live here once; otaman-cli re-exports and otaman-deploy
 imports core — no second evaluator may be written in deploy or plugin.
 
+It is also the core-invokable merge-time gate (release-notes-sibling-coverage
+1.3): ``python -m otaman_core.changelog_fragment --check --base <ref>
+[--pr-body-file <f>]`` is the ONE identical CI line every sibling repo wires,
+including repos that cannot install or import otaman-cli. cli's
+``otaman policy check-changelog`` is the human-facing wrapper over the same
+logic; the git-diff I/O lives in :func:`main`, and :func:`evaluate` stays pure.
+
 The config shape (``dir``, ``filename``, ``categories``, ``exemption_marker``)
 is core's, from ``GIT_STANDARD_RULES["changelog_fragment"]`` — read, never
 redefined, so the scaffolder, this check and the release assembly cannot
@@ -279,3 +286,154 @@ __all__ = [
     "resolve_fragment_config",
     "shipped_paths",
 ]
+
+
+# ---------------------------------------------------------------------------
+# the core-invokable gate (release-notes-sibling-coverage 1.3)
+#
+# The one CI line every sibling repo wires; the git-diff I/O lives here so
+# evaluate() above stays pure. `otaman policy check-changelog` is the cli wrapper
+# over the same logic, and this mirrors its diff (three-dot merge-base) and exit
+# codes so the two give identical verdicts.
+
+#: Exit code for a refused merge — matches cli's `_GUARD_REFUSED` so a sibling's
+#: gate and the cli wrapper block with the same status.
+_REFUSED = 3
+
+
+def _changed_paths_from_git(base: str) -> tuple[list[str], str | None]:
+    """``(paths, error)`` — files changed against *base* via the merge-base diff.
+
+    Three-dot ``base...HEAD`` (changes since the merge-base), identical to cli's
+    ``otaman policy check-changelog`` so the core gate and the wrapper agree.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", f"{base}...HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], f"git diff failed: {exc}"
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()
+        return [], f"git diff against {base!r} failed: {detail[0] if detail else 'unknown error'}"
+    return [ln.strip() for ln in result.stdout.splitlines() if ln.strip()], None
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m otaman_core.changelog_fragment --check --base <ref> [--pr-body-file <f>]``.
+
+    The core-invokable merge-time gate. Diffs ``base...HEAD``, honours the PR-body
+    exemption marker, and returns non-zero when a shipped-code change carries no
+    changelog fragment. Rules are core's shipped ``GIT_STANDARD_RULES``: a sibling
+    repo's CI has no otaman project to resolve an effective policy from, and every
+    sibling shares core's one convention — which is exactly what cli's wrapper
+    resolves to when unoverridden, so the verdicts match.
+    """
+    import argparse
+    import sys
+    from pathlib import Path
+
+    from otaman_core.policy import GIT_STANDARD_RULES
+
+    parser = argparse.ArgumentParser(
+        prog="python -m otaman_core.changelog_fragment",
+        description="Core-invokable merge-time changelog-fragment gate.",
+    )
+    parser.add_argument("--check", action="store_true", help="run the gate (required)")
+    parser.add_argument(
+        "--base", default="origin/main", help="base ref to diff against (default: origin/main)"
+    )
+    parser.add_argument("--pr", default=None, help="PR number, so its own fragment counts first")
+    parser.add_argument(
+        "--pr-body-file",
+        dest="pr_body_file",
+        default=None,
+        help="file whose text is scanned for the exemption marker",
+    )
+    parser.add_argument(
+        "--paths",
+        nargs="*",
+        default=None,
+        help="changed paths to check instead of a git diff (CI/testing escape hatch)",
+    )
+    parser.add_argument("--json", action="store_true", help="emit the verdict as JSON")
+    args = parser.parse_args(argv)
+
+    if not args.check:
+        parser.error("nothing to do — pass --check")
+
+    rules = dict(GIT_STANDARD_RULES)
+
+    if args.paths is not None:
+        paths = [p.strip() for p in args.paths if p.strip()]
+    else:
+        paths, err = _changed_paths_from_git(args.base)
+        if err:
+            print(
+                f"ERROR: {err}\n  Pass the changed files explicitly instead: --paths <f> ...",
+                file=sys.stderr,
+            )
+            return 2
+
+    exemption_text = ""
+    if args.pr_body_file:
+        try:
+            exemption_text = Path(args.pr_body_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"ERROR: cannot read --pr-body-file {args.pr_body_file!r}: {exc}", file=sys.stderr
+            )
+            return 2
+
+    verdict = evaluate(paths, rules, pr=args.pr, exemption_text=exemption_text)
+    cfg = resolve_fragment_config(rules)
+
+    if args.json:
+        import json
+
+        print(
+            json.dumps(
+                {
+                    "ok": verdict.ok,
+                    "required": verdict.required,
+                    "reason": verdict.reason,
+                    "exempted": verdict.exempted,
+                    "shipped_files": verdict.shipped,
+                    "fragments": verdict.fragments,
+                    "expected_path": verdict.expected_path,
+                    "exemption_marker": cfg.exemption_marker,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0 if verdict.ok else _REFUSED
+
+    if verdict.ok:
+        print(f"changelog fragment: OK — {verdict.reason}")
+        for frag in verdict.fragments:
+            print(f"  {frag}")
+        return 0
+
+    print(f"Refused — {verdict.reason}.", file=sys.stderr)
+    print(f"  Expected a fragment at: {verdict.expected_path}", file=sys.stderr)
+    print(f"  Categories: {', '.join(cfg.categories)}", file=sys.stderr)
+    print("  Write it for a CUSTOMER: what changed and why it matters to them.", file=sys.stderr)
+    print(f"  Docs/CI-only PR? Add '{cfg.exemption_marker}' to the PR body.", file=sys.stderr)
+    if verdict.shipped:
+        shown = verdict.shipped[:10]
+        print(f"  Shipped-code files ({len(verdict.shipped)}):", file=sys.stderr)
+        for path in shown:
+            print(f"    {path}", file=sys.stderr)
+        if len(verdict.shipped) > len(shown):
+            print(f"    … and {len(verdict.shipped) - len(shown)} more", file=sys.stderr)
+    return _REFUSED
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
