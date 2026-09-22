@@ -475,3 +475,76 @@ class TestResolveOwnerForCwd:
         outside = tmp_path / "whatever"
         outside.mkdir()
         assert resolve_owner_for_cwd(self._platform(), outside, root) is None
+
+
+# ---------------------------------------------------------------------------
+# 7th divergence (cli finding): `<dir>/**` owns the subtree, not `<dir>` itself
+
+
+class TestDoubleStarVsBareDir:
+    def test_double_star_owns_subtree_not_the_dir_itself(self):
+        assert path_matches("apps/web/x.py", "apps/web/**")
+        assert not path_matches("apps/web", "apps/web/**")
+
+    def test_bare_dir_owns_both_the_dir_and_its_subtree(self):
+        assert path_matches("apps/web", "apps/web")
+        assert path_matches("apps/web/x.py", "apps/web")
+
+
+# ---------------------------------------------------------------------------
+# resolve_owner_for_cwd — worktree awareness (unblocks shared-logic 1.5)
+
+
+def _make_worktree(tmp_path: Path, main_name: str, wt_name: str) -> tuple[Path, Path]:
+    """A main repo checkout (with a real `.git/worktrees/<n>/` dir) and a sibling
+    linked worktree whose `.git` FILE points into it — mirrors what git writes."""
+    main = tmp_path / main_name
+    worktrees_dir = main / ".git" / "worktrees" / "feature"
+    worktrees_dir.mkdir(parents=True)
+    wt = tmp_path / wt_name
+    (wt / "src").mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {worktrees_dir}\n", encoding="utf-8")
+    return main, wt
+
+
+class TestResolveOwnerForCwdWorktree:
+    def test_worktree_root_resolves_to_repo_owner(self, tmp_path: Path):
+        _main, wt = _make_worktree(tmp_path, "auth-service", "auth-service-feature")
+        platform = PlatformConfig(
+            repos=[RepoConfig(name="auth-service", owner="backend-agent", path="auth-service")]
+        )
+        assert resolve_owner_for_cwd(platform, wt, tmp_path) == "backend-agent"
+
+    def test_nested_cwd_in_worktree_resolves_to_repo_owner(self, tmp_path: Path):
+        _main, wt = _make_worktree(tmp_path, "auth-service", "auth-service-feature")
+        platform = PlatformConfig(
+            repos=[RepoConfig(name="auth-service", owner="backend-agent", path="auth-service")]
+        )
+        assert resolve_owner_for_cwd(platform, wt / "src", tmp_path) == "backend-agent"
+
+    def test_worktrees_of_different_repos_resolve_to_different_owners(self, tmp_path: Path):
+        _m1, wt1 = _make_worktree(tmp_path, "auth-service", "auth-service-wt")
+        _m2, wt2 = _make_worktree(tmp_path, "web-app", "web-app-wt")
+        platform = PlatformConfig(
+            repos=[
+                RepoConfig(name="auth-service", owner="backend-agent", path="auth-service"),
+                RepoConfig(name="web-app", owner="frontend-agent", path="web-app"),
+            ]
+        )
+        assert resolve_owner_for_cwd(platform, wt1, tmp_path) == "backend-agent"
+        assert resolve_owner_for_cwd(platform, wt2, tmp_path) == "frontend-agent"
+
+    def test_main_checkout_still_resolves_directly(self, tmp_path: Path):
+        """Regression: the direct (non-worktree) path is unchanged and wins first."""
+        main, _wt = _make_worktree(tmp_path, "auth-service", "auth-service-feature")
+        platform = PlatformConfig(
+            repos=[RepoConfig(name="auth-service", owner="backend-agent", path="auth-service")]
+        )
+        assert resolve_owner_for_cwd(platform, main, tmp_path) == "backend-agent"
+
+    def test_dir_that_is_neither_repo_nor_worktree_returns_none(self, tmp_path: Path):
+        (tmp_path / "unrelated").mkdir()
+        platform = PlatformConfig(
+            repos=[RepoConfig(name="auth-service", owner="backend-agent", path="auth-service")]
+        )
+        assert resolve_owner_for_cwd(platform, tmp_path / "unrelated", tmp_path) is None
