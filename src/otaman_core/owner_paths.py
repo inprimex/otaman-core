@@ -210,6 +210,11 @@ def path_matches(path: str, pattern: str) -> bool:
       - a pattern with ``*``/``?``/``**`` is matched as an anchored glob where
         ``*``/``?`` stay within one segment and only ``**`` crosses ``/`` (so
         ``*`` does NOT match ``a/b.py``).
+
+    A consequence worth knowing when migrating a pattern set: ``<dir>/**`` owns
+    the subtree but NOT ``<dir>`` itself (``apps/web/**`` matches ``apps/web/x``
+    but not ``apps/web``); the bare name ``apps/web`` owns both. Each spelling
+    means exactly one thing.
     """
     norm = path.strip("/").replace("\\", "/")
     pat = pattern.strip("/").replace("\\", "/")
@@ -267,8 +272,36 @@ def resolve_owner_for_cwd(
     :func:`resolve_owner_for_path` (glob overrides + catch-all ``owner``).
     Returns ``None`` when no repo encloses ``cwd`` (caller decides). Repos with
     no ``path`` are skipped.
+
+    **Worktree awareness.** A git worktree lives OUTSIDE the repo's on-disk
+    ``path`` — it is a sibling directory — so a session inside one matches no
+    repo directly. Rather than return ``None`` (which lets the caller fall
+    through to a possibly-stale ``OTAMAN_AGENT``, the very case cwd-ownership is
+    authoritative to prevent), the direct miss retries from the worktree's MAIN
+    working tree, so a worktree session is owned by its repo just like a session
+    in the main checkout.
     """
     target = cwd.resolve()
+    owner = _owner_for_target(platform, target, project_root)
+    if owner is not None:
+        return owner
+    # Direct miss: cwd may be inside a linked worktree (a sibling dir). Resolve
+    # via the worktree's main working tree.
+    from otaman_core._resolve import resolve_worktree_main
+
+    main = resolve_worktree_main(cwd)
+    if main is not None:
+        return _owner_for_target(platform, main.resolve(), project_root)
+    return None
+
+
+def _owner_for_target(
+    platform: PlatformConfig,
+    target: Path,
+    project_root: Path,
+) -> str | None:
+    """The owning agent for an absolute *target* path, or ``None`` if no repo
+    on-disk ``path`` encloses it. The direct half of :func:`resolve_owner_for_cwd`."""
     for repo in platform.repos:
         if not repo.path:
             continue
@@ -279,7 +312,7 @@ def resolve_owner_for_cwd(
             try:
                 rel = target.relative_to(repo_abs).as_posix()
             except ValueError:
-                continue  # cwd not inside this repo
+                continue  # target not inside this repo
         return resolve_owner_for_path(platform, repo.name, rel)
     return None
 
