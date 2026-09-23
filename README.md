@@ -180,5 +180,14 @@ smoke test across Python 3.11–3.13 on Linux, macOS, and Windows.
 
 ## License
 
-AGPL-3.0-only (Community Edition). Commercial and dual licenses are available from
-Inprimex Lab LLC — see [otaman.ai](https://otaman.ai) or contact licensing@inprimex.com.
+Otaman Community Edition is free software, licensed under the **GNU Affero
+General Public License, version 3** (`AGPL-3.0-only`). The complete and
+controlling text is in [LICENSE](LICENSE); see [NOTICE](NOTICE) for
+attribution and licensing pointers.
+
+Commercial and dual licenses are available from Inprimex Lab LLC for those who
+do not wish to be bound by the terms of the AGPL-3.0. For commercial licensing,
+contact <licensing@inprimex.com>.
+
+Contributions are subject to the Contributor License Agreement; see
+[CONTRIBUTING.md](CONTRIBUTING.md).
