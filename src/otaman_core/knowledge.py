@@ -36,6 +36,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from otaman_core.bus_stem import slugify
 from otaman_core.frontmatter import parse as parse_frontmatter
 
@@ -143,20 +145,33 @@ def is_past_due(entry: KnowledgeEntry, today: str) -> bool:
 
 
 def render_entry(entry: KnowledgeEntry) -> str:
-    """The on-disk markdown for *entry*: typed frontmatter then the body."""
-    lines = [
-        "---",
-        f"type: {entry.type}",
-        f"author: {entry.author}",
-        f"created: {entry.created}",
-        f"review-by: {entry.review_by}",
-        f"anchor: {entry.anchor}",
-        f"title: {entry.title}",
-        "---",
-        "",
-        entry.body.strip(),
-    ]
-    return "\n".join(lines).rstrip() + "\n"
+    """The on-disk markdown for *entry*: typed frontmatter then the body.
+
+    Frontmatter is emitted through a YAML dumper so every value is quoted when its
+    content requires it. Hand-formatting ``title: {value}`` truncated any title
+    carrying ``#`` (a PR ref like ``#73`` — YAML reads it as a comment) and
+    mangled one carrying ``:`` — memory silently losing what it was told, in the
+    tier meant to hold durable facts (cli-agent 20260923T074504). Field order is
+    preserved; a round-trip test guards it.
+    """
+    front = yaml.safe_dump(
+        {
+            "type": entry.type,
+            "author": entry.author,
+            "created": entry.created,
+            "review-by": entry.review_by,
+            "anchor": entry.anchor,
+            "title": entry.title,
+        },
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    ).strip()
+    body = entry.body.strip()
+    out = f"---\n{front}\n---\n"
+    if body:
+        out += f"\n{body}\n"
+    return out
 
 
 def parse_entry(text: str) -> KnowledgeEntry | None:

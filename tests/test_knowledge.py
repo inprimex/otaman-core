@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from otaman_core.knowledge import (
     KIND_DECISION,
     KIND_LESSON,
@@ -107,15 +109,45 @@ def test_malformed_review_by_is_not_past_due():
 
 def test_render_carries_every_field():
     text = render_entry(_entry())
-    for token in (
-        "type: lesson",
-        "author: core-agent",
-        "created: 2026-09-23",
-        "review-by: 2026-12-23",
-        "anchor: src/otaman_core/spawn.py:88",
-    ):
-        assert token in text
+    for key in ("type:", "author:", "created:", "review-by:", "anchor:", "title:"):
+        assert key in text
     assert "worktree session must resolve" in text
+
+
+def test_title_with_hash_survives_round_trip():
+    """REGRESSION (cli-agent 20260923T074504): unquoted frontmatter let YAML read
+    `#` as a comment and silently truncate the title — `worktree ... #73` lost
+    the `#73`. The renderer must quote values so nothing is dropped."""
+    entry = _entry(title="worktree sessions need core #73")
+    parsed = parse_entry(render_entry(entry))
+    assert parsed is not None and parsed.title == "worktree sessions need core #73"
+
+
+def test_title_with_colon_survives_round_trip():
+    entry = _entry(title="worktree: owner resolution needs the main tree")
+    parsed = parse_entry(render_entry(entry))
+    assert parsed is not None and parsed.title == "worktree: owner resolution needs the main tree"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "has a # hash",
+        "has: a colon",
+        "3 of 6 lost",
+        "quotes 'inside' it",
+        'double "quotes" too',
+        "trailing spaces preserved?  no",
+        "unicode — em dash and é",
+    ],
+)
+def test_render_parse_round_trip_with_hazardous_punctuation(value):
+    """Property: any field content survives render -> parse unchanged."""
+    entry = _entry(title=value, anchor=value, author=value.replace(" ", "-"))
+    parsed = parse_entry(render_entry(entry))
+    assert parsed is not None
+    assert parsed.title == value
+    assert parsed.anchor == value
 
 
 def test_round_trips_through_parse():
