@@ -111,6 +111,16 @@ def parse_platform_config(data: dict[str, Any]) -> PlatformConfig:
         if owner_paths_raw is None:
             owner_paths_raw = r.get("owner_paths")
 
+        # Strip identity-bearing fields: a padded ``owner: "  x  "`` otherwise
+        # becomes an agent name with spaces, hence a bus stem with spaces, which
+        # reaches no recipient (cli-agent 20260922T223409). Stripping at the parse
+        # home fixes every downstream reader at once; whitespace-only is then
+        # caught as empty below.
+        if isinstance(name, str):
+            name = name.strip()
+        if isinstance(owner, str):
+            owner = owner.strip()
+
         if not isinstance(name, str) or not name:
             raise OwnerPathsError(f"repos[{i}]: 'name' is required and must be a non-empty string")
         if not isinstance(owner, str) or not owner:
@@ -132,6 +142,8 @@ def parse_platform_config(data: dict[str, Any]) -> PlatformConfig:
                     raise OwnerPathsError(
                         f"repos[{i}] {name!r}: owner-paths keys must be non-empty strings"
                     )
+                if isinstance(agent, str):
+                    agent = agent.strip()
                 if not isinstance(agent, str) or not agent:
                     raise OwnerPathsError(
                         f"repos[{i}] {name!r}: owner-paths[{pattern!r}] must map "
@@ -256,7 +268,10 @@ def resolve_owner_for_path(
             specificity = len(pattern)
             if best is None or specificity > best[0]:
                 best = (specificity, agent)
-    return best[1] if best else repo.owner
+    # Defensive strip too (a RepoConfig built directly, not via parse): an owner
+    # with surrounding whitespace becomes a bus stem with spaces that reaches no
+    # recipient. parse_platform_config already strips; this covers other callers.
+    return (best[1] if best else repo.owner).strip()
 
 
 def resolve_owner_for_cwd(
