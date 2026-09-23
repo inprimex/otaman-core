@@ -548,3 +548,58 @@ class TestResolveOwnerForCwdWorktree:
             repos=[RepoConfig(name="auth-service", owner="backend-agent", path="auth-service")]
         )
         assert resolve_owner_for_cwd(platform, tmp_path / "unrelated", tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# owner/name normalization (cli-agent 20260922T223409): a padded owner becomes
+# a bus stem with spaces that reaches no recipient — strip at the parse home.
+
+
+class TestOwnerNormalization:
+    def test_parse_strips_padded_name_owner_and_agent(self):
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "  svc  ",
+                        "owner": "  backend-agent  ",
+                        "owner-paths": {"apps/web/**": "  web-agent  "},
+                    }
+                ]
+            }
+        )
+        (repo,) = cfg.repos
+        assert repo.name == "svc"
+        assert repo.owner == "backend-agent"
+        assert repo.owner_paths == {"apps/web/**": "web-agent"}
+
+    def test_padded_name_resolves(self):
+        cfg = parse_platform_config({"repos": [{"name": "  svc  ", "owner": "  backend-agent  "}]})
+        assert resolve_owner_for_path(cfg, "svc", "any/file.py") == "backend-agent"
+
+    def test_resolved_owner_has_no_surrounding_whitespace(self):
+        cfg = parse_platform_config(
+            {
+                "repos": [
+                    {
+                        "name": "svc",
+                        "owner": "root-agent",
+                        "owner-paths": {"apps/web/**": " web-agent "},
+                    }
+                ]
+            }
+        )
+        assert resolve_owner_for_path(cfg, "svc", "apps/web/App.tsx") == "web-agent"
+
+    def test_whitespace_only_owner_is_rejected_as_empty(self):
+        with pytest.raises(OwnerPathsError, match="owner"):
+            parse_platform_config({"repos": [{"name": "svc", "owner": "   "}]})
+
+    def test_whitespace_only_name_is_rejected_as_empty(self):
+        with pytest.raises(OwnerPathsError, match="name"):
+            parse_platform_config({"repos": [{"name": "   ", "owner": "a-agent"}]})
+
+    def test_resolve_defensively_strips_a_directly_built_repoconfig(self):
+        # a RepoConfig constructed directly (not via parse) with a padded owner
+        cfg = PlatformConfig(repos=[RepoConfig(name="svc", owner="  backend-agent  ")])
+        assert resolve_owner_for_path(cfg, "svc", "x.py") == "backend-agent"
