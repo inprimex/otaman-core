@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 readme = "README.md"
 authors = [{ name = "Otaman platform" }]
 license = "AGPL-3.0-only"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "pyyaml>=6",
     "jsonschema>=4",
