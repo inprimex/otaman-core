@@ -15,7 +15,7 @@ import pytest
 from otaman_core.knowledge import (
     AMENDED_FLAG,
     FUNCTION_DEVELOPMENT,
-    FUNCTION_STRATEGY,
+    FUNCTION_RESEARCH,
     FUNCTIONS,
     KIND_DECISION,
     KIND_LESSON,
@@ -255,9 +255,23 @@ def test_all_states_validate():
         assert validate_entry(_entry(state=st)) == [], st
 
 
+def test_function_enum_is_romans_eight_fixed_values():
+    # spec-agent ruling 20260924T223749 (Roman's taxonomy, otaman-specs PR #484)
+    assert FUNCTIONS == (
+        "marketing",
+        "sales",
+        "research",
+        "analysis",
+        "design",
+        "development",
+        "quality",
+        "support",
+    )
+
+
 def test_function_is_required_and_enum_checked():
     assert any("function must be one of" in e for e in validate_entry(_entry(function="")))
-    assert any("function must be one of" in e for e in validate_entry(_entry(function="finance")))
+    assert any("function must be one of" in e for e in validate_entry(_entry(function="strategy")))
     for fn in FUNCTIONS:
         assert validate_entry(_entry(function=fn)) == [], fn
 
@@ -265,7 +279,7 @@ def test_function_is_required_and_enum_checked():
 def test_v2_fields_round_trip():
     entry = _entry(
         state=STATE_DORMANT,
-        function=FUNCTION_STRATEGY,
+        function=FUNCTION_RESEARCH,
         domain="gtm",
         supersedes="2026-09-01-old-take",
         accessed_at="2026-09-24",
@@ -381,9 +395,9 @@ def test_active_entries_excludes_dormant_and_retired():
 def test_in_partition_scopes_by_function():
     entries = [
         _entry(title="d", function=FUNCTION_DEVELOPMENT),
-        _entry(title="s", function=FUNCTION_STRATEGY),
+        _entry(title="s", function=FUNCTION_RESEARCH),
     ]
-    assert [e.title for e in in_partition(entries, FUNCTION_STRATEGY)] == ["s"]
+    assert [e.title for e in in_partition(entries, FUNCTION_RESEARCH)] == ["s"]
 
 
 def test_index_line_carries_id_type_state_description():

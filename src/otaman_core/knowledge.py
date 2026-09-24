@@ -61,16 +61,31 @@ STATE_DORMANT = "dormant"
 STATE_RETIRED = "retired"
 STATES = (STATE_ACTIVE, STATE_DORMANT, STATE_RETIRED)
 
-#: The fixed ``function:`` enum — the knowledge partitions, one owner per function
-#: (``program.processes.knowledge.partitions``). SEEDED from the only partitions
-#: knowledge-v2 names (development, strategy, support — ``support`` carried
-#: explicitly unowned per design D4); the fixed set is spec-agent's to confirm or
-#: extend, and adding a value is backward-compatible. Distinct from ``domain:``,
-#: which is validated against the PROGRAM's vocabulary registry (cli), not here.
+#: The fixed, platform-owned ``function:`` enum — the knowledge partitions.
+#: Exactly these 8 (Roman's taxonomy ruling 2026-09-23, pinned in the delta,
+#: otaman-specs PR #484): additions are canon changes, never program-defined —
+#: 'industry domain = vocabulary, function = fixed enum'. The partition-owner map
+#: (``program.processes.knowledge.partitions``) is separate and sparser: only
+#: some functions have an owner today, but the enum is the full 8. Distinct from
+#: ``domain:``, which is validated against the PROGRAM's vocabulary registry (cli).
+FUNCTION_MARKETING = "marketing"
+FUNCTION_SALES = "sales"
+FUNCTION_RESEARCH = "research"
+FUNCTION_ANALYSIS = "analysis"
+FUNCTION_DESIGN = "design"
 FUNCTION_DEVELOPMENT = "development"
-FUNCTION_STRATEGY = "strategy"
+FUNCTION_QUALITY = "quality"
 FUNCTION_SUPPORT = "support"
-FUNCTIONS = (FUNCTION_DEVELOPMENT, FUNCTION_STRATEGY, FUNCTION_SUPPORT)
+FUNCTIONS = (
+    FUNCTION_MARKETING,
+    FUNCTION_SALES,
+    FUNCTION_RESEARCH,
+    FUNCTION_ANALYSIS,
+    FUNCTION_DESIGN,
+    FUNCTION_DEVELOPMENT,
+    FUNCTION_QUALITY,
+    FUNCTION_SUPPORT,
+)
 
 #: How an amended (superseded) entry is flagged on every read surface.
 AMENDED_FLAG = "[amended]"
@@ -411,8 +426,13 @@ def index_line(entry: KnowledgeEntry, *, amended: bool = False) -> str:
 __all__ = [
     "AMENDED_FLAG",
     "FUNCTIONS",
+    "FUNCTION_ANALYSIS",
+    "FUNCTION_DESIGN",
     "FUNCTION_DEVELOPMENT",
-    "FUNCTION_STRATEGY",
+    "FUNCTION_MARKETING",
+    "FUNCTION_QUALITY",
+    "FUNCTION_RESEARCH",
+    "FUNCTION_SALES",
     "FUNCTION_SUPPORT",
     "KINDS",
     "KIND_DECISION",
