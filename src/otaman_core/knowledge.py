@@ -160,9 +160,10 @@ def validate_entry(entry: KnowledgeEntry) -> list[str]:
     anchor is refused, naming the rule — a durable fact without provenance is the
     thing this memory tier must not accumulate. Type must be one of the four
     kinds; author and title must be present; created/review-by must be ISO dates;
-    state must be a known lifecycle state; function must be one of the fixed
-    partition enum (knowledge-v2). ``domain`` is validated by the CLI against the
-    program's vocabulary registry, not here.
+    state must be a known lifecycle state; function, WHEN SET, must be one of the
+    fixed partition enum — an empty function is a legacy/unassigned entry, read
+    not rejected. ``domain`` is validated by the CLI against the program's
+    vocabulary registry, not here.
     """
     errors: list[str] = []
     if entry.type not in KINDS:
@@ -182,10 +183,15 @@ def validate_entry(entry: KnowledgeEntry) -> list[str]:
         )
     if entry.state not in STATES:
         errors.append(f"state must be one of {', '.join(STATES)} (got {entry.state!r})")
-    if entry.function not in FUNCTIONS:
+    # function is validated WHEN SET; an empty function is a legacy/unassigned
+    # entry — read, not rejected (the blocked_entries.kind precedent: a field
+    # added after entries existed is tolerated, not invalidated). The six v1
+    # entries and gate 4.1's amend subject must stay operable; a NEW entry gets a
+    # real function at the write surface (cli derives it from the partition map).
+    if entry.function and entry.function not in FUNCTIONS:
         errors.append(
-            f"function must be one of the fixed partitions {', '.join(FUNCTIONS)} "
-            f"(got {entry.function!r})"
+            f"function, when set, must be one of the fixed partitions "
+            f"{', '.join(FUNCTIONS)} (got {entry.function!r})"
         )
     return errors
 

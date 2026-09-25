@@ -269,11 +269,28 @@ def test_function_enum_is_romans_eight_fixed_values():
     )
 
 
-def test_function_is_required_and_enum_checked():
-    assert any("function must be one of" in e for e in validate_entry(_entry(function="")))
-    assert any("function must be one of" in e for e in validate_entry(_entry(function="strategy")))
+def test_function_value_checked_when_set_empty_tolerated_as_legacy():
+    # empty function = a legacy/unassigned entry: read, not rejected (the
+    # blocked_entries.kind precedent; the six v1 entries + gate 4.1 depend on it)
+    assert validate_entry(_entry(function="")) == []
+    # a non-empty value must be one of the fixed 8
+    assert any("function, when set" in e for e in validate_entry(_entry(function="strategy")))
     for fn in FUNCTIONS:
         assert validate_entry(_entry(function=fn)) == [], fn
+
+
+def test_a_legacy_v1_entry_is_valid_to_operate_on():
+    """A shared-agent-memory (v1) entry has no function; it must validate so it can
+    be listed, shown, and AMENDED (gate 4.1 amends exactly such an entry) —
+    'valid to read, invalid to write' with no path between is the anti-pattern."""
+    v1 = (
+        "---\ntype: lesson\nauthor: plugin-agent\ncreated: 2026-09-23\n"
+        "review-by: 2026-12-23\nanchor: 20260923T191139-x\n"
+        "title: macos support is held\n---\nbody\n"
+    )
+    parsed = parse_entry(v1)
+    assert parsed is not None and parsed.function == ""
+    assert validate_entry(parsed) == []
 
 
 def test_v2_fields_round_trip():
