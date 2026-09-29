@@ -649,3 +649,49 @@ class TestAnnounceType:
             _write_msg(tmp_path, _valid_fm(to="all", type="task-complete"))
         )
         assert any("all" in e for e in errors)
+
+
+class TestDecisionRequired:
+    """delivery-authorization-envelope 1.1 — the loud-halt message type."""
+
+    def _fm(
+        self,
+        *,
+        decision="need a ruling on the schema-migration class",
+        blocks="task 2.1 of delivery-authorization-envelope",
+        unblock="Roman approves or declines the class",
+        frm="core-agent",
+    ):
+        base = _valid_fm(type="decision-required", **{"from": frm})
+        extra = []
+        if decision is not None:
+            extra.append(f"decision: {decision}")
+        if blocks is not None:
+            extra.append(f"blocks: {blocks}")
+        if unblock is not None:
+            extra.append(f"unblock-condition: {unblock}")
+        return base + ("\n" + "\n".join(extra) if extra else "")
+
+    def test_decision_required_is_a_valid_type(self):
+        from otaman_core.validate_message import VALID_TYPES
+
+        assert "decision-required" in VALID_TYPES
+
+    def test_valid_decision_required_passes(self, tmp_path):
+        assert _errors(tmp_path, self._fm()) == []
+
+    def test_an_ordinary_agent_may_emit_it_not_privileged(self, tmp_path):
+        # it ASKS for a decision, it does not ASSERT one — so it is not F012-privileged
+        assert _errors(tmp_path, self._fm(frm="core-agent")) == []
+
+    def test_missing_decision_is_refused(self, tmp_path):
+        assert any("'decision'" in e for e in _errors(tmp_path, self._fm(decision=None)))
+
+    def test_missing_blocks_is_refused(self, tmp_path):
+        assert any("'blocks'" in e for e in _errors(tmp_path, self._fm(blocks=None)))
+
+    def test_missing_unblock_condition_is_refused(self, tmp_path):
+        assert any("'unblock-condition'" in e for e in _errors(tmp_path, self._fm(unblock=None)))
+
+    def test_empty_field_is_refused(self, tmp_path):
+        assert any("'decision'" in e for e in _errors(tmp_path, self._fm(decision="   ")))

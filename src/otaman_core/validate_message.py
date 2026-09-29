@@ -138,7 +138,19 @@ VALID_TYPES = {
     # the `otaman program …` command (approver role / tier / HITL); this message
     # only records {program, from_state, to_state, actor, reason?}.
     "lifecycle-change",
+    # delivery-authorization-envelope 1.1 (Layer 2 — loud halts). An agent
+    # reaching a human decision it cannot resolve emits this BEFORE/at blocking,
+    # rather than freezing silently on an interactive prompt. Not privileged (it
+    # ASKS for a decision, it does not assert one). Required decision-fields are
+    # enforced below: `decision`, `blocks`, `unblock-condition` (the emitting
+    # agent is the standard `from`).
+    "decision-required",
 }
+
+#: decision-required carries four pieces of information (the delta): the agent
+#: (the standard `from`), the decision needed, the task/change it blocks, and
+#: what would unblock it. These are the frontmatter keys for the latter three.
+_DECISION_REQUIRED_FIELDS = ("decision", "blocks", "unblock-condition")
 
 # Privileged types: these assert that a human made a decision. Forging one
 # defeats the platform's HITL guarantee (security GAP finding F012, 2026-07-04)
@@ -285,6 +297,18 @@ def validate_message_content(
                 f"type '{msg_type}' is privileged and may only be sent with from: human "
                 f"(got from: {from_field!r}); this guards the platform's HITL guarantee"
             )
+
+    # delivery-authorization-envelope 1.1: a decision-required must NAME the
+    # decision it is asking for — a bare "I am blocked" with no decision, blocked
+    # work, or unblock condition is the silent-freeze this type exists to replace.
+    if msg_type == "decision-required":
+        for field in _DECISION_REQUIRED_FIELDS:
+            value = fm.get(field)
+            if value is None or not str(value).strip():
+                errors.append(
+                    f"decision-required must carry '{field}': it names the agent (from), the "
+                    f"decision, the task/change it blocks, and what would unblock it"
+                )
 
     # Priority validation
     priority = fm.get("priority")
