@@ -123,8 +123,13 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
     if not path.is_file():
         return {}
+    # libyaml (CSafeLoader) where the C extension is present, else pure-Python
+    # SafeLoader — same safe semantics, ~11x faster. read_openspec is called
+    # ~136x per console-Home render (cli #164), so the C loader turns a ~2.1s
+    # render into ~0.2s; the getattr fallback keeps yaml-only wheels working.
+    loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}

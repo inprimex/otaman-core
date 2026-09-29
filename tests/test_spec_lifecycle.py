@@ -40,6 +40,7 @@ from otaman_core.spec_lifecycle import (
     ratifications_in_month,
     ratify,
     read_delivery,
+    read_openspec,
     read_stage,
     resolve_delivery,
     resolve_spec_approver,
@@ -592,3 +593,37 @@ class TestAutoArchive:
         snapshot = dict(original)
         apply_auto_archive(original)
         assert original == snapshot
+
+
+# --- _load_yaml: fastest safe loader (cli #164 perf) --------------------------
+
+
+class TestLoadYaml:
+    def test_read_openspec_parses_correctly(self, tmp_path: Path):
+        p = tmp_path / ".openspec.yaml"
+        p.write_text("stage: approved\napproved_by: roman\n", encoding="utf-8")
+        assert read_openspec(p) == {"stage": "approved", "approved_by": "roman"}
+
+    def test_absent_or_non_mapping_is_empty(self, tmp_path: Path):
+        assert read_openspec(tmp_path / "nope.yaml") == {}
+        p = tmp_path / "list.yaml"
+        p.write_text("- a\n- b\n", encoding="utf-8")
+        assert read_openspec(p) == {}
+
+    def test_uses_libyaml_when_available(self, tmp_path: Path, monkeypatch):
+        # the C loader is what makes the 136x/console-Home read cheap; assert we
+        # actually select it (and still parse) when the extension is present.
+        if getattr(yaml, "CSafeLoader", None) is None:
+            pytest.skip("libyaml (CSafeLoader) not built into this PyYAML")
+        used: dict[str, object] = {}
+        real_load = yaml.load
+
+        def spy_load(stream, Loader):  # noqa: N803 — mirrors yaml.load's kwarg
+            used["loader"] = Loader
+            return real_load(stream, Loader=Loader)
+
+        monkeypatch.setattr(yaml, "load", spy_load)
+        p = tmp_path / ".openspec.yaml"
+        p.write_text("stage: proposed\n", encoding="utf-8")
+        assert read_openspec(p) == {"stage": "proposed"}
+        assert used["loader"] is yaml.CSafeLoader
