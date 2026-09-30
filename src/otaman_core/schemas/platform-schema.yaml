@@ -1053,3 +1053,101 @@ properties:
           description: >
             Optional PM-tool user id. Absent until resolved by
             `otaman pm init --roster`.
+
+  # ---------------------------------------------------------------------------
+  # security-gates (security-gates-hook-c 1.1)
+  #
+  # Hook C's cost-stratified pre-PR security ladder. Five layers in cost order —
+  # pre-commit, ci-fast, ci-medium, ci-slow, llm-observer — with per-language
+  # defaults, per-repo overrides, and a per-repo opt-out. ci-medium records the
+  # 2-of-3 scanner pair (trivy/grype/osv-scanner). Strict validation lives in
+  # otaman_core.security_gates; this schema mirrors the shape so `otaman validate`
+  # catches typos. Relocation candidate: verification-gates.yaml under JTBD-59.
+  security-gates:
+    type: object
+    additionalProperties: false
+    description: >
+      Hook C security ladder config (security-gates-hook-c). See
+      otaman_core.security_gates. Relocation candidate under JTBD-59.
+    properties:
+      relocation-note:
+        type: string
+        description: "Note that verification-gates.yaml is the anticipated home (JTBD-59)."
+      languages:
+        type: object
+        description: "Per-language layer defaults, keyed by language."
+        additionalProperties:
+          $ref: "#/definitions/securityLayerSet"
+      repos:
+        type: object
+        description: "Per-repo opt-out, language selection, and layer overrides."
+        additionalProperties:
+          $ref: "#/definitions/securityRepo"
+
+definitions:
+  securityLayer:
+    type: object
+    additionalProperties: false
+    description: "One layer of the ladder: its tools, timeout, and blocking flag."
+    properties:
+      tools:
+        type: array
+        items:
+          type: string
+      blocking:
+        type: boolean
+      timeout:
+        type: integer
+        minimum: 0
+        description: "Layer time budget in seconds."
+      scanner-pair:
+        type: array
+        description: "ci-medium only: the 2 of 3 dependency scanners recorded (D1)."
+        minItems: 2
+        maxItems: 2
+        items:
+          type: string
+          enum: [trivy, grype, osv-scanner]
+      opt-in:
+        type: boolean
+        description: "ci-slow: this repo has opted into the advisory slow layer."
+      cost-cap:
+        type: number
+        minimum: 0
+        description: "llm-observer: per-PR cost cap."
+  securityLayerSet:
+    type: object
+    additionalProperties: false
+    description: "The five named layers (any subset)."
+    properties:
+      pre-commit:
+        $ref: "#/definitions/securityLayer"
+      ci-fast:
+        $ref: "#/definitions/securityLayer"
+      ci-medium:
+        $ref: "#/definitions/securityLayer"
+      ci-slow:
+        $ref: "#/definitions/securityLayer"
+      llm-observer:
+        $ref: "#/definitions/securityLayer"
+  securityRepo:
+    type: object
+    additionalProperties: false
+    description: "A repo's opt-out, languages, and per-layer overrides."
+    properties:
+      opt-out:
+        type: boolean
+      languages:
+        type: array
+        items:
+          type: string
+      pre-commit:
+        $ref: "#/definitions/securityLayer"
+      ci-fast:
+        $ref: "#/definitions/securityLayer"
+      ci-medium:
+        $ref: "#/definitions/securityLayer"
+      ci-slow:
+        $ref: "#/definitions/securityLayer"
+      llm-observer:
+        $ref: "#/definitions/securityLayer"
