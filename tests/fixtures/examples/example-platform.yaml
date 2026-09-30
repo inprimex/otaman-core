@@ -96,3 +96,35 @@ program:
     M: 1.0
     L: 2.0
     XL: 4.0
+
+# security-gates-hook-c: Hook C's cost-stratified pre-PR security ladder.
+security-gates:
+  relocation-note: "Anticipated home: verification-gates.yaml (JTBD-59)."
+  languages:
+    python:
+      pre-commit:
+        tools: [ruff, mypy, detect-secrets]
+        blocking: true
+      ci-fast:
+        tools: [gitleaks, bandit, pip-audit]
+        timeout: 30
+        blocking: true
+      ci-medium:
+        tools: [semgrep, licensee]
+        scanner-pair: [trivy, grype]
+        timeout: 300
+        blocking: true
+      ci-slow:
+        tools: [semgrep-deep]
+        blocking: false
+        opt-in: true
+      llm-observer:
+        blocking: false
+        cost-cap: 0.5
+  repos:
+    backend:
+      languages: [python]
+      ci-medium:
+        scanner-pair: [trivy, osv-scanner]
+    specs:
+      opt-out: true
