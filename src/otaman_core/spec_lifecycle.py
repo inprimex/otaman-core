@@ -146,6 +146,34 @@ def read_stage(path: Path) -> str | None:
     return stage if isinstance(stage, str) and stage else None
 
 
+def openspec_is_unreadable(path: Path) -> bool:
+    """True when ``.openspec.yaml`` EXISTS but does not parse to a mapping.
+
+    The distinction :func:`read_openspec` erases: it returns ``{}`` for both an
+    absent file and an unparseable one, and the two mean opposite things to a gate.
+    An **absent** file means no gate is declared — there is nothing to verify. An
+    **unparseable** file means a gate IS declared and could not be read, which must
+    fail CLOSED, not open (nss clause 2: an unperformed check never renders OK). A
+    warn/self-waive policy cannot downgrade an inability-to-verify into a pass.
+
+    Introduced for the dispatch-gate-fails-open defect (sghc, 2026-09-30): an
+    unquoted colon in a change's ``.openspec.yaml`` raised a parse error that the
+    dispatch consult swallowed, and five task-assignments went out for a change
+    still at ``stage: authored``. An empty file (parses to ``None``) is NOT
+    unreadable — it flows through the normal stage check as a change with no stage.
+    """
+    import yaml  # local import keeps the module yaml-optional at import time
+
+    if not path.is_file():
+        return False
+    loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
+    except (OSError, yaml.YAMLError):
+        return True
+    return data is not None and not isinstance(data, dict)
+
+
 def set_stage(path: Path, stage: str) -> None:
     """Write ``stage:`` into ``.openspec.yaml`` in place, preserving other keys.
 
@@ -468,6 +496,38 @@ def check_dispatch_gate(
         else:
             violations.append("not spec-approved (authored artifacts lack a HITL approval)")
     return _decide("dispatch", policy, violations)
+
+
+def check_dispatch_gate_at(path: Path, policy: SpecPolicy) -> GateDecision:
+    """Dispatch gate that reads the change's ``.openspec.yaml`` from *path* itself.
+
+    The parsed-mapping form (:func:`check_dispatch_gate`) cannot tell an absent
+    ``.openspec.yaml`` from an unparseable one — both arrive as ``{}`` — so a
+    consult that reads the file and swallows a parse error fails OPEN (the sghc
+    incident: five assignments dispatched for a ``stage: authored`` change). This
+    entry owns that distinction so every consult inherits the same fail-closed
+    behavior instead of re-deriving it in a local ``try/except``:
+
+    - file ABSENT -> no gate is declared -> allow (nothing to verify);
+    - file present but UNPARSEABLE -> a gate IS declared and could not be read ->
+      HARD refuse (``allowed=False``) **regardless of enforcement mode** — an
+      inability to verify is not a policy violation that ``warn``/``self-waive``
+      may downgrade (nss clause 2);
+    - otherwise defer to :func:`check_dispatch_gate` on the parsed change.
+    """
+    if not path.is_file():
+        return GateDecision(gate="dispatch", allowed=True, mode=policy.enforcement)
+    if openspec_is_unreadable(path):
+        return GateDecision(
+            gate="dispatch",
+            allowed=False,
+            mode=policy.enforcement,
+            violations=(
+                "cannot verify stage — .openspec.yaml is present but does not parse; "
+                "refusing dispatch (fail closed)",
+            ),
+        )
+    return check_dispatch_gate(read_openspec(path), policy)
 
 
 def check_archive_gate(

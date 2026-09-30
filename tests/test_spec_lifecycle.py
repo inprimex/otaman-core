@@ -30,12 +30,14 @@ from otaman_core.spec_lifecycle import (
     auto_archive_decision,
     check_archive_gate,
     check_dispatch_gate,
+    check_dispatch_gate_at,
     check_merge_gate,
     has_approval,
     has_cto,
     is_forward_transition,
     is_research,
     next_stage,
+    openspec_is_unreadable,
     parse_spec_policy,
     ratifications_in_month,
     ratify,
@@ -627,3 +629,86 @@ class TestLoadYaml:
         p.write_text("stage: proposed\n", encoding="utf-8")
         assert read_openspec(p) == {"stage": "proposed"}
         assert used["loader"] is yaml.CSafeLoader
+
+
+# --- dispatch gate fails CLOSED on an unparseable .openspec.yaml (sghc) --------
+
+# The malformed value that started the incident: an unquoted colon inside a scalar
+# raises a scanner error ("mapping values are not allowed here").
+_BAD_YAML = "stage: authored\nrequested_by: roman: harden hook-c\n"
+
+
+class TestOpenspecIsUnreadable:
+    def test_absent_is_not_unreadable(self, tmp_path):
+        assert openspec_is_unreadable(tmp_path / "nope.yaml") is False
+
+    def test_valid_is_not_unreadable(self, tmp_path):
+        p = tmp_path / ".openspec.yaml"
+        p.write_text("stage: authored\n", encoding="utf-8")
+        assert openspec_is_unreadable(p) is False
+
+    def test_empty_is_not_unreadable(self, tmp_path):
+        # an empty file parses to None — a change with no stage, not a parse failure
+        p = tmp_path / ".openspec.yaml"
+        p.write_text("", encoding="utf-8")
+        assert openspec_is_unreadable(p) is False
+
+    def test_parse_error_is_unreadable(self, tmp_path):
+        p = tmp_path / ".openspec.yaml"
+        p.write_text(_BAD_YAML, encoding="utf-8")
+        assert openspec_is_unreadable(p) is True
+
+    def test_non_mapping_is_unreadable(self, tmp_path):
+        p = tmp_path / ".openspec.yaml"
+        p.write_text("- a\n- b\n", encoding="utf-8")
+        assert openspec_is_unreadable(p) is True
+
+
+class TestDispatchGateFailsClosed:
+    def _p(self, tmp_path: Path, body: str) -> Path:
+        p = tmp_path / ".openspec.yaml"
+        p.write_text(body, encoding="utf-8")
+        return p
+
+    def test_absent_file_allows(self, tmp_path):
+        # no .openspec.yaml means no gate is declared — nothing to verify
+        d = check_dispatch_gate_at(
+            tmp_path / "nope.yaml", parse_spec_policy({"enforcement": "block"})
+        )
+        assert d.allowed is True
+
+    def test_unparseable_refuses_under_block(self, tmp_path):
+        p = self._p(tmp_path, _BAD_YAML)
+        d = check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "block"}))
+        assert d.allowed is False
+        assert any("does not parse" in v for v in d.violations)
+
+    def test_unparseable_refuses_even_under_warn(self, tmp_path):
+        # THE regression: warn must NOT downgrade an inability-to-verify to a pass.
+        # This is the fail-open the sghc incident exposed.
+        p = self._p(tmp_path, _BAD_YAML)
+        d = check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "warn"}))
+        assert d.allowed is False
+
+    def test_unparseable_refuses_even_under_self_waive(self, tmp_path):
+        p = self._p(tmp_path, _BAD_YAML)
+        d = check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "self-waive"}))
+        assert d.allowed is False
+
+    def test_authored_refuses_under_block(self, tmp_path):
+        # a READABLE authored change still gates normally (mode-decided)
+        p = self._p(tmp_path, "stage: authored\n")
+        assert (
+            check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "block"})).allowed is False
+        )
+
+    def test_authored_warns_but_allows_under_warn(self, tmp_path):
+        p = self._p(tmp_path, "stage: authored\n")
+        d = check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "warn"}))
+        assert d.allowed is True and d.waived is True
+
+    def test_spec_approved_allows(self, tmp_path):
+        p = self._p(tmp_path, "stage: spec-approved\n")
+        assert (
+            check_dispatch_gate_at(p, parse_spec_policy({"enforcement": "block"})).allowed is True
+        )
