@@ -54,11 +54,26 @@ def _file_complete(
         ("1.2 do a thing", "1.2"),
         ("2.1 @otaman-core something", "2.1"),
         ("1B.3 legacy id", "1B.3"),
+        # a -bis suffix is part of the id: 1.7 and 1.7-bis must NOT collapse
+        # (cli #212 collision — both lines live in the corpus)
+        ("1.7 @otaman-bridge Spike", "1.7"),
+        ("1.7-bis @otaman-bridge codegraph", "1.7-bis"),
         ("no id here", None),
     ],
 )
 def test_task_id_of(text, expected):
     assert task_id_of(text) == expected
+
+
+def test_bis_suffix_does_not_collide_with_base_id():
+    assert task_id_of("1.7 x") != task_id_of("1.7-bis x")
+
+
+def test_completed_spec_keeps_bis_suffix_distinct():
+    # a filing that names 1.7 does not silently cover 1.7-bis
+    assert _parse_completed_spec("1.7") == {"1.7"}
+    assert _parse_completed_spec("1.7-bis") == {"1.7-bis"}
+    assert _parse_completed_spec("1.7, 1.7-bis") == {"1.7", "1.7-bis"}
 
 
 # ---------------------------------------------------------------------------

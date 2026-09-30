@@ -33,7 +33,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-_TASK_ID_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+)*)\b")
+# The trailing ``(?:-[a-z0-9]+)?`` captures a hyphen suffix like ``1.7-bis`` as
+# part of the id. Without it the match stopped at the word boundary before the
+# hyphen, so ``1.7`` and ``1.7-bis`` — two distinct task lines that co-exist in the
+# live corpus (architecture-dependency-graph/tasks.md) — collapsed to the same id,
+# and a filing for one would tick both (cli #212 collision report). Keeping the
+# suffix is safe under either ruling on whether ``-bis`` is a legitimate id form:
+# if it is, the two lines tick independently; if spec-agent later rewrites it, this
+# reader still never silently closes a task nobody did.
+_TASK_ID_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+)*(?:-[a-z0-9]+)?)\b")
 _COMPLETED_RE = re.compile(r"^\*\*Completed\*\*:\s*(.+)$", re.MULTILINE)
 _RANGE_RE = re.compile(r"^(\d+)\.(\d+)\s*-\s*(\d+)\.(\d+)$")
 _TIMESTAMP_RE = re.compile(r"^timestamp:\s*(\S+)", re.MULTILINE)
@@ -49,7 +57,11 @@ UNTICK_SCAN_COMMITS = 200
 
 
 def task_id_of(task_text: str) -> str | None:
-    """The leading ``1.2`` / ``2.1`` / ``1B.3`` identifier of a tasks.md line."""
+    """The leading ``1.2`` / ``2.1`` / ``1B.3`` / ``1.7-bis`` identifier of a line.
+
+    A hyphen suffix (``-bis``) is part of the id, so ``1.7`` and ``1.7-bis`` are
+    distinct — they are two different task lines in the corpus and must not collide.
+    """
     match = _TASK_ID_RE.match(task_text.strip())
     return match.group(1) if match else None
 
