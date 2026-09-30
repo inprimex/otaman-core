@@ -240,7 +240,9 @@ class TestProcessLevelR1:
 
 # --- 1.3 gates ----------------------------------------------------------------
 
-APPROVED = {"stage": "approved", "approved_by": "roman (20260907T121620)"}
+# merge-ready: BOTH signals present (spec-agent ruling 20260930) — the spec-approve
+# act writes approved_by AND advances stage to spec-approved.
+APPROVED = {"stage": "spec-approved", "approved_by": "roman (20260907T121620)"}
 AUTHORED_UNAPPROVED = {"stage": "authored"}
 BLOCK = SpecPolicy(enforcement="block")
 WARN = SpecPolicy(enforcement="warn")
@@ -251,7 +253,7 @@ class TestMergeGate:
     def test_unapproved_delta_refused_in_block(self):
         d = check_merge_gate(AUTHORED_UNAPPROVED, BLOCK)
         assert not d.allowed
-        assert any("approval" in v for v in d.violations)
+        assert any("spec-approved" in v for v in d.violations)
 
     def test_approved_passes(self):
         d = check_merge_gate(APPROVED, BLOCK)
@@ -295,6 +297,34 @@ class TestMergeGate:
         change = {**APPROVED, "outcome": "JTBD-99"}
         d = check_merge_gate(change, BLOCK, jtbd_enabled=True, outcome_ok=True)
         assert d.allowed
+
+    # --- two-signal conjunct + disagreement (spec-agent ruling 20260930) ---
+
+    def test_field_present_but_stage_before_spec_approved_refuses(self):
+        # the sghc mislabel shape: approved_by set while stage is only 'approved'
+        change = {"stage": "approved", "approved_by": "roman (scr)"}
+        d = check_merge_gate(change, BLOCK)
+        assert not d.allowed
+        assert any("disagree" in v and "stage" in v for v in d.violations)
+
+    def test_stage_advanced_but_field_missing_refuses(self):
+        change = {"stage": "spec-approved"}  # stage right, attestation missing
+        d = check_merge_gate(change, BLOCK)
+        assert not d.allowed
+        assert any("disagree" in v for v in d.violations)
+
+    def test_disagreement_refuses_even_under_warn(self):
+        # a disagreement is a data-integrity fault, not a policy state — warn must
+        # NOT downgrade it to allowed-with-notice (nss: never silently reconciled)
+        change = {"stage": "approved", "approved_by": "roman (scr)"}
+        assert not check_merge_gate(change, WARN).allowed
+        assert not check_merge_gate(change, SELFWAIVE).allowed
+
+    def test_both_absent_is_mode_decided_not_disagreement(self):
+        # neither signal → the normal not-yet-approved state → mode governs
+        change = {"stage": "authored"}
+        assert not check_merge_gate(change, BLOCK).allowed
+        assert check_merge_gate(change, WARN).allowed  # waived, loud
 
 
 class TestDispatchGate:
