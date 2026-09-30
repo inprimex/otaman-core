@@ -45,6 +45,8 @@ _TASK_ID_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+)*(?:-[a-z0-9]+)?)\b")
 _COMPLETED_RE = re.compile(r"^\*\*Completed\*\*:\s*(.+)$", re.MULTILINE)
 _RANGE_RE = re.compile(r"^(\d+)\.(\d+)\s*-\s*(\d+)\.(\d+)$")
 _TIMESTAMP_RE = re.compile(r"^timestamp:\s*(\S+)", re.MULTILINE)
+_TYPE_RE = re.compile(r"^type:\s*task-complete\s*$", re.MULTILINE)
+_CHANGE_RE = re.compile(r"^change:\s*(.+?)\s*$", re.MULTILINE)
 
 #: The ``otaman complete --all`` sentinel, which names no individual ids. Consumers
 #: test ``COMPLETED_ALL in filed`` to mean "every task of the change is filed".
@@ -106,18 +108,38 @@ def _filing_time(text: str) -> datetime | None:
         return None
 
 
-def filed_complete_at(
-    project_root: Path, change: str, config: dict[str, Any]
-) -> dict[str, datetime | None]:
-    """Task id -> the NEWEST filing time for it, for *change*.
+def _merge_newest(dst: dict[str, datetime | None], tid: str, when: datetime | None) -> None:
+    """Record *when* as *tid*'s filing time, keeping the NEWEST across filings.
 
-    ``None`` as a value means a filing exists but carries no parseable timestamp;
-    callers treat that as "filed, age unknown". Both ``active`` and ``archive`` are
-    scanned so a swept bus does not resurrect finished work. Matched on the
-    ``type: task-complete`` frontmatter, never on filename.
+    ``None`` (a filing with no parseable timestamp) never overwrites a real time and
+    only fills an absent id — "filed, age unknown" loses to any dated filing.
+    """
+    if tid not in dst:
+        dst[tid] = when
+    elif when is not None:
+        prev = dst[tid]
+        if prev is None or when > prev:
+            dst[tid] = when
+
+
+def filed_complete_by_change(
+    project_root: Path, config: dict[str, Any]
+) -> dict[str, dict[str, datetime | None]]:
+    """All filed task-completes in ONE bus pass: change -> {task id -> newest time}.
+
+    The batch form of :func:`filed_complete_at`, for the reconciler that asks about
+    every change at once (cli tcr 2.2): the per-change call is O(changes x messages)
+    — 61 whole-bus scans measured at ~23s on the largest tenant — and this collapses
+    them to a single O(messages) pass. Same rules exactly: matched on the
+    ``type: task-complete`` frontmatter (never filename), grouped by the ``change:``
+    frontmatter, newest filing wins, both ``active`` and ``archive`` scanned.
+
+    Deliberately does NOT touch git: the retraction rule (:func:`last_untick_at`,
+    per task) is applied downstream by :func:`is_effectively_complete`, unchanged —
+    batching the bus scan does not batch or weaken the un-tick check.
     """
     bus_rel = config.get("communication", {}).get("bus_path", ".agents/bus")
-    out: dict[str, datetime | None] = {}
+    out: dict[str, dict[str, datetime | None]] = {}
     for sub in ("active", "archive"):
         directory = project_root / bus_rel / sub
         if not directory.is_dir():
@@ -127,20 +149,35 @@ def filed_complete_at(
                 text = path.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if not re.search(r"^type:\s*task-complete\s*$", text, re.MULTILINE):
+            if not _TYPE_RE.search(text):
                 continue
-            if not re.search(rf"^change:\s*{re.escape(change)}\s*$", text, re.MULTILINE):
+            change_match = _CHANGE_RE.search(text)
+            if not change_match:
                 continue
+            bucket = out.setdefault(change_match.group(1), {})
             when = _filing_time(text)
             for completed in _COMPLETED_RE.finditer(text):
                 for tid in _parse_completed_spec(completed.group(1)):
-                    if tid not in out:
-                        out[tid] = when
-                    elif when is not None:
-                        prev = out[tid]
-                        if prev is None or when > prev:
-                            out[tid] = when
+                    _merge_newest(bucket, tid, when)
     return out
+
+
+def filed_complete_at(
+    project_root: Path, change: str, config: dict[str, Any]
+) -> dict[str, datetime | None]:
+    """Task id -> the NEWEST filing time for it, for *change*.
+
+    ``None`` as a value means a filing exists but carries no parseable timestamp;
+    callers treat that as "filed, age unknown". Both ``active`` and ``archive`` are
+    scanned so a swept bus does not resurrect finished work. Matched on the
+    ``type: task-complete`` frontmatter, never on filename.
+
+    A thin lookup over :func:`filed_complete_by_change` so single-change and
+    fleet-wide callers share one matching implementation and cannot drift. A caller
+    asking about many changes should call the batch function once instead of this
+    per change (that is the ~23s vs one-pass difference; cli tcr 2.2).
+    """
+    return filed_complete_by_change(project_root, config).get(change, {})
 
 
 def filed_complete_ids(project_root: Path, change: str, config: dict[str, Any]) -> set[str]:
@@ -230,6 +267,7 @@ __all__ = [
     "COMPLETED_ALL",
     "UNTICK_SCAN_COMMITS",
     "filed_complete_at",
+    "filed_complete_by_change",
     "filed_complete_ids",
     "is_effectively_complete",
     "last_untick_at",
