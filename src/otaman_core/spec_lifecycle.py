@@ -425,18 +425,44 @@ def check_merge_gate(
     jtbd_enabled: bool = False,
     outcome_ok: bool | None = None,
 ) -> GateDecision:
-    """Merge-path gate: a delta-bearing change needs a valid approval (D2).
+    """Merge-path gate: a delta-bearing change needs a valid spec-approval (D2).
 
-    Research-stage and delta-free changes pass unconditionally. Otherwise the
-    change must carry ``approved_by`` (D1); when JTBD support is enabled it must
-    also carry an Approved ``outcome`` (D6). The enforcement mode decides whether
-    a violation refuses, warns, or self-waives.
+    Research-stage and delta-free changes pass unconditionally. Otherwise merge
+    requires TWO signals that are written by DIFFERENT acts (spec-agent ruling
+    2026-09-30): ``approved_by`` present (written only by the spec-approve act) AND
+    ``stage`` at or past ``spec-approved`` (the stage advance). When JTBD support is
+    enabled it must also carry an Approved ``outcome`` (D6).
+
+    Requiring both catches both error directions — the mislabeled-field case
+    (``approved_by`` set while the stage is still authored) and the
+    stage-advanced-without-attestation case (stage right, field missing). When the
+    two signals DISAGREE (exactly one present) that is a data-integrity fault, not a
+    normal not-yet-approved state: it refuses HARD, naming both values, regardless
+    of enforcement mode — two independently-written sources that can disagree must
+    never be silently reconciled to "proceed" by a warn/self-waive policy (nss).
+    When both are absent (a legitimate in-progress change), the enforcement mode
+    decides, as before.
     """
     if is_research(change) or not has_capability_delta:
         return GateDecision(gate="merge", allowed=True, mode=policy.enforcement)
+    approval_present = has_approval(change)
+    stage_ok = spec_approved_reached(change)
+    if approval_present != stage_ok:
+        return GateDecision(
+            gate="merge",
+            allowed=False,
+            mode=policy.enforcement,
+            violations=(
+                f"merge signals disagree — approved_by={change.get('approved_by')!r} "
+                f"(spec-approval {'present' if approval_present else 'MISSING'}) but "
+                f"stage={change.get('stage')!r} "
+                f"({'at/after' if stage_ok else 'before'} spec-approved); both are "
+                "required for merge and must agree",
+            ),
+        )
     violations: list[str] = []
-    if not has_approval(change):
-        violations.append("no valid approval (approved_by missing)")
+    if not approval_present:  # both absent here — the normal not-yet-approved state
+        violations.append("not spec-approved (needs approved_by AND stage >= spec-approved)")
     outcome_v = _outcome_violation(change, jtbd_enabled=jtbd_enabled, outcome_ok=outcome_ok)
     if outcome_v:
         violations.append(outcome_v)
