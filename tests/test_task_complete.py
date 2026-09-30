@@ -20,6 +20,7 @@ from otaman_core.task_complete import (
     COMPLETED_ALL,
     _parse_completed_spec,
     filed_complete_at,
+    filed_complete_by_change,
     filed_complete_ids,
     is_effectively_complete,
     last_untick_at,
@@ -150,6 +151,57 @@ def test_filed_complete_ids(tmp_path):
 
 def test_missing_bus_dir_is_empty(tmp_path):
     assert filed_complete_at(tmp_path, "chg", _CONFIG) == {}
+
+
+# ---------------------------------------------------------------------------
+# filed_complete_by_change — the one-pass batch reader (cli tcr 2.2)
+
+
+def test_batch_groups_by_change(tmp_path):
+    active = tmp_path / ".agents" / "bus" / "active"
+    _file_complete(active, "a.md", change="alpha", completed="1.1", ts="2026-01-01T00:00:00Z")
+    _file_complete(active, "b.md", change="alpha", completed="1.2", ts="2026-01-02T00:00:00Z")
+    _file_complete(active, "c.md", change="beta", completed="2.1", ts="2026-01-03T00:00:00Z")
+    by_change = filed_complete_by_change(tmp_path, _CONFIG)
+    assert set(by_change) == {"alpha", "beta"}
+    assert set(by_change["alpha"]) == {"1.1", "1.2"}
+    assert set(by_change["beta"]) == {"2.1"}
+
+
+def test_batch_agrees_with_per_change(tmp_path):
+    active = tmp_path / ".agents" / "bus" / "active"
+    _file_complete(active, "older.md", change="chg", completed="1.1", ts="2026-01-01T00:00:00Z")
+    _file_complete(active, "newer.md", change="chg", completed="1.1", ts="2026-02-01T00:00:00Z")
+    _file_complete(active, "other.md", change="chg", completed="1.2", ts="2026-01-05T00:00:00Z")
+    # the per-change function is now a lookup over the batch — they must match exactly
+    assert filed_complete_by_change(tmp_path, _CONFIG)["chg"] == filed_complete_at(
+        tmp_path, "chg", _CONFIG
+    )
+    assert filed_complete_at(tmp_path, "chg", _CONFIG)["1.1"] == datetime(2026, 2, 1, tzinfo=UTC)
+
+
+def test_batch_change_prefix_does_not_bleed(tmp_path):
+    # a change name that is a prefix of another must not collect the other's filings
+    active = tmp_path / ".agents" / "bus" / "active"
+    _file_complete(active, "a.md", change="foo", completed="1.1", ts="2026-01-01T00:00:00Z")
+    _file_complete(active, "b.md", change="foo-bar", completed="2.2", ts="2026-01-01T00:00:00Z")
+    by_change = filed_complete_by_change(tmp_path, _CONFIG)
+    assert set(by_change["foo"]) == {"1.1"}
+    assert set(by_change["foo-bar"]) == {"2.2"}
+    assert set(filed_complete_at(tmp_path, "foo", _CONFIG)) == {"1.1"}
+
+
+def test_batch_ignores_non_task_complete(tmp_path):
+    active = tmp_path / ".agents" / "bus" / "active"
+    _file_complete(active, "a.md", change="chg", completed="1.1", ts="2026-01-01T00:00:00Z")
+    _file_complete(
+        active, "b.md", change="chg", completed="9.9", ts="2026-01-01T00:00:00Z", mtype="info"
+    )
+    assert set(filed_complete_by_change(tmp_path, _CONFIG)["chg"]) == {"1.1"}
+
+
+def test_batch_missing_bus_is_empty(tmp_path):
+    assert filed_complete_by_change(tmp_path, _CONFIG) == {}
 
 
 # ---------------------------------------------------------------------------
