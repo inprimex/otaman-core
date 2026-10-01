@@ -47,7 +47,20 @@ RUNTIME_HONORED_VALUES = (YES, LIMITED)
 #: ``runtime-honored`` marker. Additions are spec changes — keeping the vocabulary
 #: reviewable and stopping per-change invented verbs. Every class starts ``LIMITED``:
 #: the fail-safe unmeasured value. cli 2.2 measures each class against the live
-#: runtime and records the result here (design D6 — measurement, not assumption).
+#: runtime (design D6 — measurement, not assumption).
+#:
+#: D6 promotion rule (spec-agent ruling 20261001T080031, Option A): a measurement
+#: can only FALSIFY (a guard/hook stops the action -> stays LIMITED); it cannot
+#: CERTIFY a universal negative. So ``yes`` means "no enumerated prompting surface
+#: prompts for the class's representative action in the FLEET REFERENCE config ON
+#: THE PINNED HARNESS VERSION" (recorded scope: ``honored-in: reference-config@
+#: <harness-pin>``, see :mod:`otaman_core.harness_registry`). A pin move or a
+#: permission-model change invalidates certification back to ``LIMITED`` until
+#: re-probed. FLIPPING a class to ``yes`` is itself a canon change (a spec change
+#: that passes human review with the probe evidence), not an automatic measurement
+#: flip — so every promotion is human-visible without a per-class attestation act.
+#: All seven stay ``LIMITED`` until first probed against the (future) pinned
+#: reference; a stricter tenant still prompting falls back to decision-required.
 CLASS_REGISTRY: dict[str, str] = {
     "hooks-wiring": LIMITED,
     "release-publish": LIMITED,
