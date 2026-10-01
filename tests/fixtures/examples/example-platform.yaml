@@ -137,3 +137,9 @@ runner:
     - id: claude-code
       binary: claude
       pin: "1.2.3"
+
+# llm-router-backend: opt-in LLM routing (absent = native path, byte-identical).
+router:
+  backend: litellm-proxy
+  base_url: "http://localhost:4000"
+  local_only_classes: [cofounder-only]

@@ -906,9 +906,50 @@ properties:
               type: string
             enabled:
               type: boolean
+            route:
+              description: >
+                llm-router-backend 1.1: the model family / target this agent's LLM
+                calls route to. A string is family-only; the object form adds model
+                and local (stays in the tenant). Resolved via
+                otaman_core.llm_router.effective_route.
+              oneOf:
+                - type: string
+                - type: object
+                  additionalProperties: false
+                  required: [family]
+                  properties:
+                    family:
+                      type: string
+                    model:
+                      type: string
+                    local:
+                      type: boolean
       - type: object
         additionalProperties: true
     description: "Agent registry. Array form (otaman-init) OR mapping form (program-companion)."
+
+  # ---------------------------------------------------------------------------
+  # llm-router-backend (1.1)
+  #
+  # Opt-in `router:` block: configures the litellm-proxy harness backend. Absent =
+  # the default native path (byte-identical). See otaman_core.llm_router.
+  router:
+    type: object
+    additionalProperties: false
+    description: "Opt-in LLM routing backend (llm-router-backend). Absent = native path."
+    properties:
+      backend:
+        type: string
+        enum: [litellm-proxy]
+        description: "The routing backend; only litellm-proxy today."
+      base_url:
+        type: string
+        description: "The litellm proxy's OpenAI-compatible endpoint (required for litellm-proxy)."
+      local_only_classes:
+        type: array
+        items:
+          type: string
+        description: "Sensitivity classes that must stay in the tenant; the guard refuses a non-local route for them."
 
   # ---------------------------------------------------------------------------
   # Multi-org future specs
