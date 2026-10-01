@@ -1,0 +1,40 @@
+# JSON Schema for verification-gates.yaml (expressed in YAML for readability).
+# critic-selection-policy 1.1 — the single home for verification-gate configuration.
+# Strict semantic validation lives in otaman_core.verification_gates; this schema
+# mirrors the shape so a config surface can validate it. sghc's security-gates block
+# migrates into this file (csp 1.2), retiring its platform.yaml relocation note.
+
+type: object
+additionalProperties: false
+
+properties:
+  clearances:
+    type: object
+    description: "Clearance declarations: agent name -> the sensitivity classes it may review."
+    additionalProperties:
+      type: array
+      items:
+        type: string
+
+  hooks:
+    type: object
+    description: "Per-hook critic-selection policy, keyed by hook name."
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required: [primary]
+      properties:
+        primary:
+          $ref: "#/definitions/policy"
+        fallback:
+          $ref: "#/definitions/policy"
+        sensitivity-overrides:
+          type: object
+          description: "sensitivity class -> the policy that replaces primary for that class."
+          additionalProperties:
+            $ref: "#/definitions/policy"
+
+definitions:
+  policy:
+    type: string
+    enum: [sensitivity-scoped, stakeholder-affected, consumer-chain, role-based]
