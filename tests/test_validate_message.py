@@ -695,3 +695,25 @@ class TestDecisionRequired:
 
     def test_empty_field_is_refused(self, tmp_path):
         assert any("'decision'" in e for e in _errors(tmp_path, self._fm(decision="   ")))
+
+
+class TestSecurityGateReport:
+    """security-gates-hook-c 1.6 — Hook C's result-record message type."""
+
+    def test_is_a_valid_type(self):
+        from otaman_core.validate_message import VALID_TYPES
+
+        assert "security-gate-report" in VALID_TYPES
+
+    def test_valid_report_message_passes(self, tmp_path):
+        fm = _valid_fm(type="security-gate-report", **{"from": "plugin-agent"})
+        assert _errors(tmp_path, fm) == []
+
+    def test_not_privileged_any_agent_may_emit(self, tmp_path):
+        # it reports tool results, it asserts no human decision — not F012-privileged
+        fm = _valid_fm(type="security-gate-report", **{"from": "cli-agent"})
+        assert _errors(tmp_path, fm) == []
+
+    def test_not_a_broadcast_type(self, tmp_path):
+        fm = _valid_fm(type="security-gate-report", to="all", **{"from": "plugin-agent"})
+        assert _errors(tmp_path, fm)  # to: all is refused for a non-broadcast type
