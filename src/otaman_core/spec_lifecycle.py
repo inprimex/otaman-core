@@ -743,17 +743,29 @@ def validate_spec_approved_transition(
 def apply_spec_approved(
     change_dict: dict[str, Any],
     approver: HumanRosterEntry,
+    *,
+    attested_at: str | None = None,
 ) -> dict[str, Any]:
     """Return ``change_dict`` advanced to ``spec-approved`` with the approver recorded.
 
-    The symmetric writer to :func:`validate_spec_approved_transition`: sets
-    ``stage: spec-approved`` and a ``spec_approved_by`` marker naming the human
-    who approved the authored artifacts (D5). Pure — returns a new dict, does not
-    mutate the input, records the identity only, never artifact content.
+    The symmetric writer to :func:`validate_spec_approved_transition`, and the ONE
+    writer of every field the spec-approve act owns (cli's seam ask 20261001T124651):
+    sets ``stage: spec-approved``, the ``spec_approved_by`` marker, AND ``approved_by``
+    — the gate-honored attestation (:func:`has_approval` / the merge gate's phase-2
+    arm read ``approved_by``, not ``spec_approved_by``). Homing the ``approved_by``
+    FORMAT here means the caller passes inputs (the approver + an optional
+    ``attested_at`` timestamp) rather than composing a string the gate later parses —
+    no format drift between the writer and the reader.
+
+    Pure — returns a new dict, does not mutate the input, records the identity only,
+    never artifact content. ``attested_at`` is a caller-supplied timestamp (core keeps
+    no clock); omitted, the marker simply carries no time.
     """
     out = dict(change_dict)
     out["stage"] = SPEC_APPROVED_STAGE
     out["spec_approved_by"] = approver.name
+    when = f" {attested_at}" if attested_at else ""
+    out["approved_by"] = f"{approver.name} (spec-approved{when}, via otaman -i)"
     return out
 
 

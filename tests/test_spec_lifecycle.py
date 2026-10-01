@@ -549,6 +549,14 @@ class TestSpecApprovedTransition:
         out = apply_spec_approved({"stage": "authored"}, CTO)
         assert out["stage"] == "spec-approved"
         assert out["spec_approved_by"] == "Roman"
+        # it now also writes the gate-honored field, formatted in one place
+        assert out["approved_by"].startswith("Roman (spec-approved")
+
+    def test_apply_spec_approved_satisfies_its_own_merge_gate(self):
+        # the writer must produce a record the phase-2 merge-gate arm accepts
+        out = apply_spec_approved({"stage": "authored"}, CTO, attested_at="20261001T120000Z")
+        assert "20261001T120000Z" in out["approved_by"]
+        assert check_merge_gate(out, BLOCK).allowed
 
     def test_apply_spec_approved_is_pure(self):
         original = {"stage": "authored"}
