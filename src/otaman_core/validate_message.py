@@ -145,6 +145,13 @@ VALID_TYPES = {
     # enforced below: `decision`, `blocks`, `unblock-condition` (the emitting
     # agent is the standard `from`).
     "decision-required",
+    # security-gates-hook-c 1.6 — Hook C's own per-PR result record (per-layer
+    # verdicts, deterministic-vs-observer disagreement flags, suppression audit),
+    # a surface distinct from JTBD-57's spec-proposal critique (ruling
+    # 20260930T210003). Non-privileged (it reports tool results, asserts no human
+    # decision). Schema + the derived blocked verdict live in
+    # otaman_core.security_gate_report; plugin emits it (1.7), cli renders it.
+    "security-gate-report",
 }
 
 #: decision-required carries four pieces of information (the delta): the agent
