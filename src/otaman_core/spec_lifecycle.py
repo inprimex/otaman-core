@@ -98,9 +98,27 @@ def spec_approved_reached(change: Mapping[str, Any]) -> bool:
 
 
 def has_approval(change: Mapping[str, Any]) -> bool:
-    """Whether the change carries a non-empty ``approved_by`` (D1)."""
+    """Whether the change carries a non-empty ``approved_by`` (D1).
+
+    ``approved_by`` is the spec-approve field: written only by the v-act when a change
+    reaches ``spec-approved`` (scoped-fields ruling 2026-09-30). Authorization to
+    *author* lives in :func:`has_scr_approval` (``scr_approved_by``) instead.
+    """
     approved_by = change.get("approved_by")
     return isinstance(approved_by, str) and bool(approved_by.strip())
+
+
+def has_scr_approval(change: Mapping[str, Any]) -> bool:
+    """Whether the change carries a non-empty ``scr_approved_by`` (scoped-fields ruling).
+
+    ``scr_approved_by`` records the SCR-time authorization to AUTHOR — the honored
+    field while a change is below ``spec-approved``. Distinct from ``approved_by``
+    (the spec-approve attestation); each lifecycle phase has exactly one honored
+    field, which is what lets the merge gate accept an authoring merge without
+    mistaking it for a spec-approval.
+    """
+    scr = change.get("scr_approved_by")
+    return isinstance(scr, str) and bool(scr.strip())
 
 
 def amendment_reenters_review(*, touches_capability_delta: bool, is_research_change: bool) -> bool:
@@ -425,44 +443,63 @@ def check_merge_gate(
     jtbd_enabled: bool = False,
     outcome_ok: bool | None = None,
 ) -> GateDecision:
-    """Merge-path gate: a delta-bearing change needs a valid spec-approval (D2).
+    """Merge-path gate: a delta-bearing change needs the HONORED field for its phase.
 
-    Research-stage and delta-free changes pass unconditionally. Otherwise merge
-    requires TWO signals that are written by DIFFERENT acts (spec-agent ruling
-    2026-09-30): ``approved_by`` present (written only by the spec-approve act) AND
-    ``stage`` at or past ``spec-approved`` (the stage advance). When JTBD support is
-    enabled it must also carry an Approved ``outcome`` (D6).
+    Research-stage and delta-free changes pass unconditionally. Otherwise each
+    lifecycle phase has exactly ONE honored field (scoped-fields ruling 2026-09-30,
+    authored-arm amendment 2026-10-01):
 
-    Requiring both catches both error directions — the mislabeled-field case
-    (``approved_by`` set while the stage is still authored) and the
-    stage-advanced-without-attestation case (stage right, field missing). When the
-    two signals DISAGREE (exactly one present) that is a data-integrity fault, not a
-    normal not-yet-approved state: it refuses HARD, naming both values, regardless
-    of enforcement mode — two independently-written sources that can disagree must
-    never be silently reconciled to "proceed" by a warn/self-waive policy (nss).
-    When both are absent (a legitimate in-progress change), the enforcement mode
-    decides, as before.
+    - **below spec-approved** (authoring): ``scr_approved_by`` — the SCR-time
+      authorization to author covers landing authored artifacts. An authored change
+      has no ``approved_by`` BY DESIGN, so requiring it here wrongly refused authoring
+      merges (the regression this arm fixes).
+    - **at/after spec-approved**: ``approved_by`` — the spec-approve attestation.
+
+    So merge acceptance = (stage < spec-approved AND ``scr_approved_by``) OR
+    (stage >= spec-approved AND ``approved_by``). When JTBD support is enabled an
+    Approved ``outcome`` is also required (D6).
+
+    The two DISAGREEMENT directions are data-integrity faults, not normal states, so
+    they refuse HARD regardless of enforcement mode (nss — never silently reconciled):
+    ``approved_by`` present while the stage is still below spec-approved (the
+    mislabeled-field case), and the stage at/after spec-approved with ``approved_by``
+    MISSING (stage advanced without attestation). The honored field simply absent for
+    the phase is the normal not-yet-authorized state — the enforcement mode decides.
     """
     if is_research(change) or not has_capability_delta:
         return GateDecision(gate="merge", allowed=True, mode=policy.enforcement)
     approval_present = has_approval(change)
     stage_ok = spec_approved_reached(change)
-    if approval_present != stage_ok:
+
+    def _hard_refuse(detail: str) -> GateDecision:
         return GateDecision(
-            gate="merge",
-            allowed=False,
-            mode=policy.enforcement,
-            violations=(
-                f"merge signals disagree — approved_by={change.get('approved_by')!r} "
-                f"(spec-approval {'present' if approval_present else 'MISSING'}) but "
-                f"stage={change.get('stage')!r} "
-                f"({'at/after' if stage_ok else 'before'} spec-approved); both are "
-                "required for merge and must agree",
-            ),
+            gate="merge", allowed=False, mode=policy.enforcement, violations=(detail,)
         )
+
     violations: list[str] = []
-    if not approval_present:  # both absent here — the normal not-yet-approved state
-        violations.append("not spec-approved (needs approved_by AND stage >= spec-approved)")
+    if stage_ok:
+        # phase 2: approved_by is the honored field; its absence is a disagreement
+        # (stage advanced without attestation), not a normal in-progress state.
+        if not approval_present:
+            return _hard_refuse(
+                f"merge signals disagree — stage={change.get('stage')!r} is at/after "
+                "spec-approved but approved_by is MISSING (stage advanced without "
+                "attestation); the spec-approve act must stamp approved_by"
+            )
+    else:
+        # phase 1 (authoring): scr_approved_by is the honored field. approved_by set
+        # this early is the mislabeled-field disagreement.
+        if approval_present:
+            return _hard_refuse(
+                f"merge signals disagree — approved_by={change.get('approved_by')!r} is "
+                f"set but stage={change.get('stage')!r} is before spec-approved; "
+                "approved_by is written only by the spec-approve act"
+            )
+        if not has_scr_approval(change):
+            violations.append(
+                "not authorized to merge (authoring needs scr_approved_by; "
+                "spec-approved needs approved_by)"
+            )
     outcome_v = _outcome_violation(change, jtbd_enabled=jtbd_enabled, outcome_ok=outcome_ok)
     if outcome_v:
         violations.append(outcome_v)

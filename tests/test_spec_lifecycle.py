@@ -34,6 +34,7 @@ from otaman_core.spec_lifecycle import (
     check_merge_gate,
     has_approval,
     has_cto,
+    has_scr_approval,
     is_forward_transition,
     is_research,
     next_stage,
@@ -321,10 +322,43 @@ class TestMergeGate:
         assert not check_merge_gate(change, SELFWAIVE).allowed
 
     def test_both_absent_is_mode_decided_not_disagreement(self):
-        # neither signal → the normal not-yet-approved state → mode governs
+        # neither signal → the normal not-yet-authorized state → mode governs
         change = {"stage": "authored"}
         assert not check_merge_gate(change, BLOCK).allowed
         assert check_merge_gate(change, WARN).allowed  # waived, loud
+
+    # --- authored-stage arm (scr_approved_by): the regression fix 20261001 ---
+
+    def test_authoring_merge_accepted_with_scr_approved_by(self):
+        # an authored change has no approved_by BY DESIGN; scr_approved_by is the
+        # honored field there. This is what #91 wrongly refused (instruction-regen).
+        change = {"stage": "authored", "scr_approved_by": "roman (SCR broadcast, authoring)"}
+        d = check_merge_gate(change, BLOCK)
+        assert d.allowed and not d.waived
+
+    def test_authoring_merge_before_spec_approved_stages(self):
+        # the arm covers every pre-spec-approved stage, not just 'authored'
+        for stage in ("proposed", "approved", "authored"):
+            change = {"stage": stage, "scr_approved_by": "roman (SCR)"}
+            assert check_merge_gate(change, BLOCK).allowed, stage
+
+    def test_approved_by_before_spec_approved_still_refuses(self):
+        # approved_by is the spec-approve field — setting it while authoring is the
+        # mislabel disagreement, hard-refused even with scr_approved_by also present
+        change = {
+            "stage": "authored",
+            "scr_approved_by": "roman (SCR)",
+            "approved_by": "roman (mislabeled)",
+        }
+        d = check_merge_gate(change, BLOCK)
+        assert not d.allowed
+        assert any("disagree" in v for v in d.violations)
+
+    def test_has_scr_approval(self):
+        assert has_scr_approval({"scr_approved_by": "roman (SCR)"})
+        assert not has_scr_approval({"scr_approved_by": "  "})
+        assert not has_scr_approval({"approved_by": "roman"})  # the OTHER field
+        assert not has_scr_approval({})
 
 
 class TestDispatchGate:
