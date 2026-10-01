@@ -130,3 +130,10 @@ security-gates:
         opt-in: true
     specs:
       opt-out: true
+
+# harness-version-management: the one authoritative exact pin for the harness binary.
+runner:
+  harnesses:
+    - id: claude-code
+      binary: claude
+      pin: "1.2.3"
