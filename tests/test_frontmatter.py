@@ -11,7 +11,7 @@ message written by either transport parses identically.
 
 from __future__ import annotations
 
-from otaman_core.frontmatter import cc_recipients, is_cc_copy, parse
+from otaman_core.frontmatter import cc_recipients, is_cc_copy, parse, parse_bus_timestamp
 
 MESSAGE = """---
 id: 20260921T101010-runner-a
@@ -166,3 +166,28 @@ body
     assert isinstance(fm["x-cc"], bool)
     assert cc_recipients(fm) == ["spec-agent"]
     assert is_cc_copy(fm) is True
+
+
+# --- parse_bus_timestamp: the single-homed bus-timestamp parser (cli #234) ---
+
+
+def test_parse_bus_timestamp_accepts_fractional_seconds():
+    # the producer writes datetime.now(UTC).isoformat() -> fractional seconds
+    from datetime import UTC, datetime
+
+    dt = parse_bus_timestamp("2026-10-01T14:21:30.238843+00:00")
+    assert dt == datetime(2026, 10, 1, 14, 21, 30, 238843, tzinfo=UTC)
+
+
+def test_parse_bus_timestamp_accepts_z_suffix():
+    from datetime import UTC, datetime
+
+    assert parse_bus_timestamp("2026-05-28T12:00:00Z") == datetime(2026, 5, 28, 12, 0, tzinfo=UTC)
+
+
+def test_parse_bus_timestamp_rejects_blank_and_bad():
+    assert parse_bus_timestamp("") is None
+    assert parse_bus_timestamp("   ") is None
+    assert parse_bus_timestamp(None) is None
+    assert parse_bus_timestamp("not-a-time") is None
+    assert parse_bus_timestamp(12345) is None
