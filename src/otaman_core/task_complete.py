@@ -33,6 +33,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from otaman_core.frontmatter import parse_bus_timestamp
+
 # The trailing ``(?:-[a-z0-9]+)?`` captures a hyphen suffix like ``1.7-bis`` as
 # part of the id. Without it the match stopped at the word boundary before the
 # hyphen, so ``1.7`` and ``1.7-bis`` — two distinct task lines that co-exist in the
@@ -102,10 +104,10 @@ def _filing_time(text: str) -> datetime | None:
     match = _TIMESTAMP_RE.search(text)
     if not match:
         return None
-    try:
-        return datetime.fromisoformat(match.group(1).strip().replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    # The canonical bus-timestamp parse is single-homed in frontmatter (cli #234):
+    # it accepts the producer's fractional-second isoformat that an inline strptime
+    # would reject.
+    return parse_bus_timestamp(match.group(1))
 
 
 def _merge_newest(dst: dict[str, datetime | None], tid: str, when: datetime | None) -> None:

@@ -18,6 +18,8 @@ import re
 import sys
 from pathlib import Path
 
+from otaman_core.frontmatter import parse_bus_timestamp
+
 try:
     import yaml
 except ImportError:
@@ -290,6 +292,16 @@ def validate_message_content(
     for field in REQUIRED_FIELDS:
         if field not in fm:
             errors.append(f"Missing required field: {field}")
+
+    # timestamp must carry a PARSEABLE value, not just be present (cli #234 finding):
+    # REQUIRED_FIELDS checks presence, so an empty `timestamp:` validated clean and
+    # produced messages that cannot be aged, archived, or ordered. Validate the value
+    # through the canonical parser so the writer refuses it at source.
+    if "timestamp" in fm and parse_bus_timestamp(fm.get("timestamp")) is None:
+        errors.append(
+            f"timestamp must be a parseable ISO-8601 value, got {fm.get('timestamp')!r} "
+            "(an empty or malformed timestamp cannot be aged, archived, or ordered)"
+        )
 
     # Type validation
     msg_type = fm.get("type")

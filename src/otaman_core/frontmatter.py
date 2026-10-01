@@ -21,6 +21,7 @@ out — no file I/O, so callers keep their own reading and caching.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 import yaml
@@ -97,8 +98,41 @@ def is_cc_copy(fm: dict[str, Any]) -> bool:
     return False
 
 
+def parse_bus_timestamp(value: Any) -> datetime | None:
+    """Parse a bus-message ``timestamp:`` value into an aware datetime, or ``None``.
+
+    The canonical reader for the frontmatter ``timestamp:`` field, homed once per the
+    shared-logic-single-home rule: ``task_complete`` and cli's ``cleanup_bus`` each
+    parsed it inline and drifted — cli's three-``strptime`` parser rejected the
+    FRACTIONAL SECONDS the producer's ``datetime.now(UTC).isoformat()`` emits, so
+    ``otaman cleanup`` aged 98.4% of the bus as unparseable and archived nothing
+    (deploy root-cause 20261001T142130).
+
+    Accepts the producer's ISO-8601 via :meth:`datetime.fromisoformat` (with or
+    without fractional seconds), normalizing a trailing ``Z`` to ``+00:00``. A value
+    that is ALREADY a :class:`datetime` is returned as-is — a YAML frontmatter loader
+    types an ISO timestamp into a datetime, while the regex/string readers hand over a
+    str, and both callers use this one parser. Returns ``None`` for an absent, blank,
+    or unparseable value — the honest "no usable timestamp" the writer validation
+    (:mod:`otaman_core.validate_message`) now refuses up front, rather than a message
+    that cannot be aged or ordered.
+    """
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 __all__ = [
     "cc_recipients",
     "is_cc_copy",
     "parse",
+    "parse_bus_timestamp",
 ]

@@ -717,3 +717,16 @@ class TestSecurityGateReport:
     def test_not_a_broadcast_type(self, tmp_path):
         fm = _valid_fm(type="security-gate-report", to="all", **{"from": "plugin-agent"})
         assert _errors(tmp_path, fm)  # to: all is refused for a non-broadcast type
+
+
+class TestTimestampValue:
+    """cli #234 — an empty/malformed timestamp must be refused, not just present."""
+
+    def test_empty_timestamp_refused(self, tmp_path):
+        assert any("timestamp" in e for e in _errors(tmp_path, _valid_fm(timestamp="")))
+
+    def test_malformed_timestamp_refused(self, tmp_path):
+        assert any("timestamp" in e for e in _errors(tmp_path, _valid_fm(timestamp="junk")))
+
+    def test_fractional_second_timestamp_accepted(self, tmp_path):
+        assert _errors(tmp_path, _valid_fm(timestamp="2026-10-01T14:21:30.238843+00:00")) == []
