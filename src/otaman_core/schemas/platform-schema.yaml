@@ -865,6 +865,16 @@ properties:
               type: string
             min_version:
               type: string
+              description: "Legacy minimum-version floor (a range). Superseded by `pin` for exactness."
+            pin:
+              type: string
+              description: >
+                harness-version-management 1.1: the EXACT harness version the fleet
+                runs (not a range — conformance certifies a binary, not a floor).
+                Human/canary-authored and moved only through the canary soak;
+                provisioning and bootstrap DERIVE from it (install + autoUpdates off)
+                and never author it. Absent = unpinned (ce-bootstrap fallback, with a
+                warning). See otaman_core.harness_registry.
 
   # ---------------------------------------------------------------------------
   # agent-status-presence
