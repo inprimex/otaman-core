@@ -62,6 +62,11 @@ SCANNER_PAIR_SIZE = 2
 #: The layer that records a scanner pair.
 SCANNER_LAYER = "ci-medium"
 
+#: The advisory layer a repo opts INTO (spec: "ci-slow — advisory, opt-in per repo").
+#: ``opt-in`` is accepted only here, and only on a repo entry — never a language
+#: default (opt-in is a per-repo decision, not a language-wide one).
+OPT_IN_LAYER = "ci-slow"
+
 #: JTBD-59 relocation note (design D4). The block lives in platform.yaml now;
 #: verification-gates.yaml is its anticipated home. Declaring both would be the
 #: two-files-drift class, so the block stays single-homed and carries this note.
@@ -142,7 +147,7 @@ def _parse_scanner_pair(raw: Any, where: str) -> tuple[str, ...]:
     return pair
 
 
-def _parse_layer(name: str, raw: Any, where: str) -> LayerGate:
+def _parse_layer(name: str, raw: Any, where: str, *, allow_opt_in: bool) -> LayerGate:
     if name not in LAYERS:
         raise SecurityGatesError(f"{where}: unknown layer {name!r}; layers are {', '.join(LAYERS)}")
     body = _as_mapping(raw, f"{where}.{name}")
@@ -165,6 +170,20 @@ def _parse_layer(name: str, raw: Any, where: str) -> LayerGate:
                 f"{where}.{name}: scanner-pair is only meaningful on {SCANNER_LAYER!r}"
             )
         scanner_pair = _parse_scanner_pair(body["scanner-pair"], f"{where}.{name}")
+    if "opt-in" in body:
+        # opt-in is a PER-REPO decision on ci-slow only (spec: "advisory, opt-in per
+        # repo"). It is meaningless on a language default — a default that forced
+        # opt-in would make every repo of that language opted-in, contradicting
+        # "per repo" and silently un-clearable (the bug plugin's sghc 1.4 found).
+        if name != OPT_IN_LAYER:
+            raise SecurityGatesError(
+                f"{where}.{name}: opt-in is only meaningful on {OPT_IN_LAYER!r}"
+            )
+        if not allow_opt_in:
+            raise SecurityGatesError(
+                f"{where}.{name}: opt-in is a per-repo decision — set it under "
+                f"repos.<repo>.{OPT_IN_LAYER}, not a language default"
+            )
     return LayerGate(
         layer=name,
         tools=tuple(tools),
@@ -176,9 +195,12 @@ def _parse_layer(name: str, raw: Any, where: str) -> LayerGate:
     )
 
 
-def _parse_layer_set(raw: Any, where: str) -> dict[str, LayerGate]:
+def _parse_layer_set(raw: Any, where: str, *, allow_opt_in: bool) -> dict[str, LayerGate]:
     body = _as_mapping(raw, where)
-    return {name: _parse_layer(name, sub, where) for name, sub in body.items()}
+    return {
+        name: _parse_layer(name, sub, where, allow_opt_in=allow_opt_in)
+        for name, sub in body.items()
+    }
 
 
 def parse_security_gates(block: Any) -> SecurityGatesConfig:
@@ -194,7 +216,9 @@ def parse_security_gates(block: Any) -> SecurityGatesConfig:
     body = _as_mapping(block, "security-gates")
     languages: dict[str, dict[str, LayerGate]] = {}
     for lang, raw in _as_mapping(body.get("languages", {}), "security-gates.languages").items():
-        languages[lang] = _parse_layer_set(raw, f"security-gates.languages.{lang}")
+        languages[lang] = _parse_layer_set(
+            raw, f"security-gates.languages.{lang}", allow_opt_in=False
+        )
 
     repos: dict[str, dict[str, Any]] = {}
     for repo, raw in _as_mapping(body.get("repos", {}), "security-gates.repos").items():
@@ -211,7 +235,9 @@ def parse_security_gates(block: Any) -> SecurityGatesConfig:
             entry["languages"] = tuple(langs)
         overrides = {k: v for k, v in rbody.items() if k in LAYERS}
         if overrides:
-            entry["layers"] = _parse_layer_set(overrides, f"security-gates.repos.{repo}")
+            entry["layers"] = _parse_layer_set(
+                overrides, f"security-gates.repos.{repo}", allow_opt_in=True
+            )
         stray = set(rbody) - {"opt-out", "languages"} - set(LAYERS)
         if stray:
             raise SecurityGatesError(
@@ -230,9 +256,15 @@ def _merge_layer(name: str, parts: list[LayerGate], override: LayerGate | None) 
 
     Union of ``tools`` (order-stable, deduped); ``blocking`` is True if ANY language
     marks it blocking (fail-safe — a language that wants the block wins); ``timeout``
-    is the MAX (the longest a language needs); ``opt_in`` is any-true; ``cost_cap``
-    is the min set (the tightest cap). The repo override replaces any field it sets,
-    including the scanner pair (which is a per-repo record).
+    is the MAX (the longest a language needs); ``cost_cap`` is the min set (the
+    tightest cap). The repo override replaces any field it sets, including the
+    scanner pair (a per-repo record).
+
+    ``opt_in`` is the one field that is NOT derived from language defaults: it is a
+    per-repo decision (opt-in per repo), so it comes solely from the repo override —
+    True only when this repo opted into ci-slow, False otherwise (fail-safe default;
+    a repo with no override is not opted in). This answers "did THIS repo opt in?",
+    not "is this an opt-in layer?" (the conflation plugin's sghc 1.4 surfaced).
     """
     tools: list[str] = []
     for p in parts:
@@ -240,10 +272,10 @@ def _merge_layer(name: str, parts: list[LayerGate], override: LayerGate | None) 
     blocking = any(p.blocking for p in parts) if parts else _DEFAULT_BLOCKING[name]
     timeouts = [p.timeout for p in parts if p.timeout is not None]
     timeout = max(timeouts) if timeouts else None
-    opt_in = any(p.opt_in for p in parts)
     caps = [p.cost_cap for p in parts if p.cost_cap is not None]
     cost_cap = min(caps) if caps else None
     scanner_pair = next((p.scanner_pair for p in parts if p.scanner_pair), ())
+    opt_in = override.opt_in if override is not None else False
 
     if override is not None:
         if override.tools:
@@ -251,7 +283,6 @@ def _merge_layer(name: str, parts: list[LayerGate], override: LayerGate | None) 
         blocking = override.blocking
         if override.timeout is not None:
             timeout = override.timeout
-        opt_in = opt_in or override.opt_in
         if override.cost_cap is not None:
             cost_cap = override.cost_cap
         if override.scanner_pair:
@@ -304,6 +335,7 @@ def resolve_repo_gates(
 
 __all__ = [
     "LAYERS",
+    "OPT_IN_LAYER",
     "RELOCATION_NOTE",
     "SCANNERS",
     "SCANNER_LAYER",

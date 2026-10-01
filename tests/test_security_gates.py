@@ -29,7 +29,7 @@ _BLOCK = {
                 "timeout": 300,
                 "blocking": True,
             },
-            "ci-slow": {"tools": ["semgrep-deep"], "blocking": False, "opt-in": True},
+            "ci-slow": {"tools": ["semgrep-deep"], "blocking": False},
             "llm-observer": {"blocking": False, "cost-cap": 0.5},
         },
         "javascript": {
@@ -41,8 +41,9 @@ _BLOCK = {
         "backend": {
             "languages": ["python"],
             "ci-medium": {"scanner-pair": ["trivy", "osv-scanner"]},
+            "ci-slow": {"opt-in": True},  # this repo opts into the advisory layer
         },
-        "web": {"languages": ["python", "javascript"]},
+        "web": {"languages": ["python", "javascript"]},  # does NOT opt into ci-slow
         "docs": {"opt-out": True},
     },
 }
@@ -85,6 +86,8 @@ def test_parse_full_block():
         {"languages": {"py": {"ci-medium": {"scanner-pair": ["trivy", "trivy"]}}}},  # dup
         {"languages": {"py": {"ci-medium": {"scanner-pair": ["trivy", "snyk"]}}}},  # unknown
         {"languages": {"py": {"ci-fast": {"scanner-pair": ["trivy", "grype"]}}}},  # wrong layer
+        {"languages": {"py": {"ci-slow": {"opt-in": True}}}},  # opt-in in a language default
+        {"repos": {"r": {"ci-fast": {"opt-in": True}}}},  # opt-in on a non-ci-slow layer
         {"repos": {"r": {"opt_out": True}}},  # stray key (underscore)
         {"languages": "nope"},  # not a mapping
     ],
@@ -105,6 +108,8 @@ def test_resolve_single_language():
     # per-repo override wins the recorded pair
     assert gates.layer("ci-medium").scanner_pair == ("trivy", "osv-scanner")
     assert gates.layer("ci-fast").tools == ("gitleaks", "bandit")
+    # this repo opted into ci-slow; the resolved opt_in answers "did THIS repo opt in?"
+    assert gates.layer("ci-slow").opt_in is True
     # layers come back in canonical order
     assert [la.layer for la in gates.layers] == [n for n in LAYERS if gates.layer(n) is not None]
 
@@ -119,6 +124,8 @@ def test_resolve_mixed_repo_unions_tools():
     assert ci_fast.timeout == 45
     # blocking is any-true
     assert ci_fast.blocking is True
+    # web did NOT opt into ci-slow — opt_in is False (not monotonic from a default)
+    assert gates.layer("ci-slow").opt_in is False
 
 
 def test_resolve_opt_out_is_visible_and_empty():
