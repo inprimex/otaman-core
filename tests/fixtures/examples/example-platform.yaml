@@ -117,7 +117,6 @@ security-gates:
       ci-slow:
         tools: [semgrep-deep]
         blocking: false
-        opt-in: true
       llm-observer:
         blocking: false
         cost-cap: 0.5
@@ -126,5 +125,8 @@ security-gates:
       languages: [python]
       ci-medium:
         scanner-pair: [trivy, osv-scanner]
+      # opt-in is a per-repo decision — this repo opts into the advisory ci-slow layer
+      ci-slow:
+        opt-in: true
     specs:
       opt-out: true
