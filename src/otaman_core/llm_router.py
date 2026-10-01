@@ -1,12 +1,19 @@
-"""The HarnessBackend seam + LLM routing (llm-router-backend 1.1).
+"""The ModelBackend seam + LLM routing (llm-router-backend 1.1).
 
 Today every LLM call rides one backend; there is no seam to express "this critic
 runs on a different family" or "this content must stay local." This module is that
 seam, defined MINIMALLY and single-home from birth (spec-agent ruling 20261001T120243
-— it hosts routing, not a speculative full backend separation; a future JTBD-23 change
-extends THIS, not the reverse). Consumed by the adapters litellm adapter (1.2), the
-bridge routing dispatch + sensitivity guard (1.3), and the cli route surfaces + doctor
-(1.4).
+— it hosts routing, not a speculative full backend separation; a future full-
+separation change extends THIS, not the reverse).
+
+Named ``ModelBackend``, not ``HarnessBackend`` (cofounder ruling 20261001T210109):
+"harness" is the agent-CLI binary (Claude Code — installed, pinned, conformance-
+checked; and the multi-harness portability work, JTBD-145), a distinct axis from the
+MODEL this routes. JTBD-23's own statement calls the thing it swaps "the model
+backend"; otaman-adapters' ``SkillAdapter`` is a skill-FORMAT seam, not a model one,
+so no existing seam is duplicated here. Consumed by the adapters litellm adapter
+(1.2), the bridge routing dispatch + sensitivity guard (1.3), and the cli route
+surfaces + doctor (1.4).
 
 Two implementations, exactly:
 
@@ -73,7 +80,7 @@ class BackendTarget:
 
 
 @runtime_checkable
-class HarnessBackend(Protocol):
+class ModelBackend(Protocol):
     """The seam: given an agent's :class:`Route` (or ``None``), where does the call go?"""
 
     @property
@@ -185,7 +192,7 @@ def _local_only(raw: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(classes)
 
 
-def select_backend(config: Mapping[str, Any]) -> HarnessBackend:
+def select_backend(config: Mapping[str, Any]) -> ModelBackend:
     """The active backend. Unconfigured -> :class:`DefaultBackend` (byte-identical path)."""
     rc = parse_router_config(config)
     if rc.backend == LITELLM_PROXY and rc.base_url is not None:
@@ -254,7 +261,7 @@ __all__ = [
     "LITELLM_PROXY",
     "BackendTarget",
     "DefaultBackend",
-    "HarnessBackend",
+    "ModelBackend",
     "LiteLLMProxyBackend",
     "Route",
     "RouterConfig",
