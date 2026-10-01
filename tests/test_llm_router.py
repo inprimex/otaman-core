@@ -1,4 +1,4 @@
-"""llm-router-backend 1.1 — the HarnessBackend seam, routing, and the guard predicate.
+"""llm-router-backend 1.1 — the ModelBackend seam, routing, and the guard predicate.
 
 Pins the two implementations (default byte-identical / litellm-proxy), opt-in config
 (absent = default), single-point route resolution, and the sensitivity-guard predicate.
@@ -13,8 +13,8 @@ from otaman_core.llm_router import (
     LITELLM_PROXY,
     BackendTarget,
     DefaultBackend,
-    HarnessBackend,
     LiteLLMProxyBackend,
+    ModelBackend,
     Route,
     RouterError,
     effective_route,
@@ -28,8 +28,8 @@ from otaman_core.llm_router import (
 
 
 def test_both_backends_satisfy_the_protocol():
-    assert isinstance(DefaultBackend(), HarnessBackend)
-    assert isinstance(LiteLLMProxyBackend(base_url="http://x"), HarnessBackend)
+    assert isinstance(DefaultBackend(), ModelBackend)
+    assert isinstance(LiteLLMProxyBackend(base_url="http://x"), ModelBackend)
 
 
 def test_default_backend_no_route_is_native():
