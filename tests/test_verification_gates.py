@@ -180,3 +180,56 @@ def test_schema_is_valid_and_accepts_the_example():
     assert list(v.iter_errors(_CONFIG_DATA)) == []
     # an unknown policy is rejected by the schema too
     assert list(v.iter_errors({"hooks": {"h": {"primary": "nope"}}}))
+
+
+# --- D4 independence invariant: proposer never self-reviews (ruling 20261001T205124) ---
+
+
+def test_proposer_excluded_from_selection():
+    ctx = SelectionContext(
+        affected_repos=("core", "cli"),
+        repo_owners={"core": "core-agent", "cli": "cli-agent"},
+        proposer="core-agent",  # proposer owns an affected repo
+    )
+    r = select_critics(_cfg(), "proposal", ctx)
+    assert "core-agent" not in r.critics  # never reviews own proposal
+    assert r.critics == ("cli-agent",)
+    assert r.excluded_proposer is True
+
+
+def test_exclusion_emptying_primary_triggers_fallback():
+    # proposer is the ONLY stakeholder -> primary empties -> fallback (role-based) runs
+    ctx = SelectionContext(
+        affected_repos=("core",),
+        repo_owners={"core": "core-agent"},
+        proposer="core-agent",
+        agent_roles={"reviewer-agent": ("reviewer",)},
+        target_role="reviewer",
+    )
+    r = select_critics(_cfg(), "proposal", ctx)
+    assert r.fell_back is True
+    assert r.policy == "role-based"
+    assert r.critics == ("reviewer-agent",)
+    assert r.excluded_proposer is True
+
+
+def test_no_proposer_means_no_exclusion():
+    ctx = SelectionContext(affected_repos=("core",), repo_owners={"core": "core-agent"})
+    r = select_critics(_cfg(), "proposal", ctx)
+    assert r.critics == ("core-agent",)
+    assert r.excluded_proposer is False
+
+
+def test_proposer_also_excluded_from_fallback():
+    # proposer would be selected by BOTH primary and fallback -> excluded from both
+    ctx = SelectionContext(
+        affected_repos=("core",),
+        repo_owners={"core": "core-agent"},
+        proposer="core-agent",
+        agent_roles={"core-agent": ("reviewer",)},  # proposer also has the fallback role
+        target_role="reviewer",
+    )
+    r = select_critics(_cfg(), "proposal", ctx)
+    assert "core-agent" not in r.critics
+    assert r.critics == ()  # both policies emptied by exclusion
+    assert r.excluded_proposer is True

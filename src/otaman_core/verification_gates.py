@@ -100,6 +100,10 @@ class SelectionContext:
     consumers: tuple[str, ...] = ()
     agent_roles: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     target_role: str | None = None
+    #: The proposing agent, excluded from every policy's critic set — a proposer never
+    #: reviews their own proposal (the D4 independence INVARIANT, spec-agent ruling
+    #: 20261001T205124). ``None`` when there is no proposer to exclude.
+    proposer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,8 @@ class SelectionResult:
     fell_back: bool = False
     sensitivity_override: bool = False
     dropped_uncleared: tuple[str, ...] = ()
+    #: True when the proposer was removed from a policy's selection (D4 invariant).
+    excluded_proposer: bool = False
 
 
 def _str_tuple(value: Any, where: str) -> tuple[str, ...]:
@@ -219,8 +225,10 @@ def select_critics(
     Resolution order:
     1. if the content's sensitivity class has an override, that policy replaces
        ``primary`` (``sensitivity_override`` set);
-    2. run the chosen policy; if it selects nothing and a ``fallback`` is configured,
-       run the fallback (``fell_back`` set);
+    2. run the chosen policy, then EXCLUDE the proposer (D4 independence invariant —
+       no policy may select the proposer as a critic of their own proposal); if the
+       result is empty (nothing selected, OR exclusion emptied it) and a ``fallback``
+       is configured, run the fallback, also proposer-excluded (``fell_back`` set);
     3. the CLEARANCE GATE: if the content carries a sensitivity class, drop any
        selected critic that declares no matching clearance — sensitive content never
        reaches an uncleared critic, whatever policy chose it (the dropped agents are
@@ -233,17 +241,27 @@ def select_critics(
     if hp is None:
         raise VerificationGatesError(f"no policy configured for hook {hook!r}")
 
+    excluded = False
+
+    def _run(policy: str) -> tuple[str, ...]:
+        nonlocal excluded
+        picked = _run_policy(policy, ctx, config)
+        if ctx.proposer is not None and ctx.proposer in picked:
+            excluded = True
+            picked = tuple(c for c in picked if c != ctx.proposer)
+        return picked
+
     sensitivity_override = False
     policy = hp.primary
     if ctx.sensitivity is not None and ctx.sensitivity in hp.sensitivity_overrides:
         policy = hp.sensitivity_overrides[ctx.sensitivity]
         sensitivity_override = True
 
-    critics = _run_policy(policy, ctx, config)
+    critics = _run(policy)
     fell_back = False
     if not critics and hp.fallback is not None:
         policy = hp.fallback
-        critics = _run_policy(policy, ctx, config)
+        critics = _run(policy)
         fell_back = True
 
     dropped: tuple[str, ...] = ()
@@ -260,6 +278,7 @@ def select_critics(
         fell_back=fell_back,
         sensitivity_override=sensitivity_override,
         dropped_uncleared=dropped,
+        excluded_proposer=excluded,
     )
 
 
