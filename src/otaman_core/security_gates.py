@@ -251,6 +251,28 @@ def parse_security_gates(block: Any) -> SecurityGatesConfig:
     return SecurityGatesConfig(languages=languages, repos=repos, relocation_note=note)
 
 
+def resolve_security_gates(
+    platform_config: Mapping[str, Any],
+    verification_gates_config: Mapping[str, Any] | None = None,
+) -> SecurityGatesConfig:
+    """Parse the ``security-gates`` block from WHEREVER it currently lives.
+
+    The block is migrating from ``platform.yaml`` into ``verification-gates.yaml`` (csp
+    1.2 — the single home for gate config, retiring :data:`RELOCATION_NOTE`). This
+    resolver reads the NEW home first and falls back to ``platform.yaml``, so a
+    consumer's call site need not know which file won — the migration is a core-side
+    change, not a two-location fallback every reader re-derives (cli's ask
+    20261001T123147). Returns an empty config when neither declares the block.
+
+    Pass the parsed ``verification-gates.yaml`` as *verification_gates_config* (its
+    top-level mapping, which may carry a ``security-gates`` key once migrated) and the
+    parsed ``platform.yaml`` as *platform_config*.
+    """
+    if verification_gates_config is not None and "security-gates" in verification_gates_config:
+        return parse_security_gates(verification_gates_config["security-gates"])
+    return parse_security_gates(platform_config.get("security-gates"))
+
+
 def _merge_layer(name: str, parts: list[LayerGate], override: LayerGate | None) -> LayerGate:
     """Fold one layer across a repo's languages, then apply the repo override.
 
@@ -346,4 +368,5 @@ __all__ = [
     "SecurityGatesError",
     "parse_security_gates",
     "resolve_repo_gates",
+    "resolve_security_gates",
 ]

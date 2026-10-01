@@ -16,6 +16,7 @@ from otaman_core.security_gates import (
     SecurityGatesError,
     parse_security_gates,
     resolve_repo_gates,
+    resolve_security_gates,
 )
 
 _BLOCK = {
@@ -146,3 +147,25 @@ def test_resolve_repo_with_no_languages_has_no_layers():
     gates = resolve_repo_gates(cfg, "unlisted")
     assert gates.opt_out is False
     assert gates.layers == ()
+
+
+# --- resolve_security_gates: location-agnostic home (cli ask 20261001T123147) ---
+
+
+def test_resolve_reads_platform_when_only_home():
+    platform = {"security-gates": {"languages": {"python": {"ci-fast": {"tools": ["ruff"]}}}}}
+    cfg = resolve_security_gates(platform)
+    assert "python" in cfg.languages
+
+
+def test_resolve_prefers_verification_gates_home():
+    # once migrated, the verification-gates home wins over a stale platform.yaml block
+    platform = {"security-gates": {"languages": {"python": {"ci-fast": {"tools": ["old"]}}}}}
+    vgates = {"security-gates": {"languages": {"python": {"ci-fast": {"tools": ["new"]}}}}}
+    cfg = resolve_security_gates(platform, vgates)
+    assert cfg.languages["python"]["ci-fast"].tools == ("new",)
+
+
+def test_resolve_empty_when_neither_declares():
+    assert resolve_security_gates({}, {}).languages == {}
+    assert resolve_security_gates({}).repos == {}
