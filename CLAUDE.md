@@ -28,7 +28,7 @@ must pass the full CI gate to merge.
 
 | Path | Contents |
 |---|---|
-| `src/otaman_core/` | Kernel modules — protocols, adapters, resolvers, validators, OTel helpers |
+| `src/otaman_core/` | Kernel modules — protocols, adapters, resolvers, validators, the spec-lifecycle + registry-access contracts |
 | `src/otaman_core/schemas/` | Canonical JSON/AsyncAPI/OpenAPI schemas, incl. `platform-schema.yaml` |
 | `scripts/` | Operational scripts (not packaged at install time) |
 | `tests/` | pytest suite, including schema-drift fixtures under `tests/fixtures/examples/` |
