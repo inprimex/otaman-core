@@ -1,0 +1,53 @@
+# JSON Schema for the outcomes register (registry-access-contract 1.3).
+#
+# One schema the outcomes register validates against. The status enum is the A.4
+# machine pinned by spec-agent (20261002T163717): Done-Partial is ABOLISHED — a
+# partially-delivered outcome is `Done` with a required `remainder:` (cofounder's 1.4
+# migrates the seven legacy Done-Partial rows). It is validated by
+# otaman_core.registry_access.validate_register, which REPORTS violations (it does not
+# raise / gate loading — flag-don't-break until the 1.4 migration lands).
+#
+# Deliberately lenient (additionalProperties: true on a record) — the register carries
+# fields across several roles and eras; the goal is to pin the CANON constraints (the
+# status enum, remainder as a string, the core identity + statement shape), not to
+# reject every record with an extra key (the over-strict loader produced 116 errors).
+
+type: object
+additionalProperties: true
+properties:
+  outcomes:
+    type: array
+    items:
+      $ref: "#/definitions/outcome"
+
+definitions:
+  outcome:
+    type: object
+    additionalProperties: true
+    required: [id, status]
+    properties:
+      id:
+        type: string
+      category:
+        type: string
+      status:
+        type: string
+        enum: [Drafting, Backlog, Approved, In-Progress, Done, Retired]
+      remainder:
+        type: string
+        description: "What shipped scope was cut (required when a Done record cut scope; replaces Done-Partial)."
+      priority:
+        type: string
+        enum: [P0, P1, P2, P3]
+      impact:
+        type: string
+        enum: [XS, S, M, L, XL]
+      statement:
+        type: object
+        additionalProperties: true
+        required: [as-a, i-want-to, so-i-can]
+      transitions:
+        type: array
+        items:
+          type: object
+          additionalProperties: true
