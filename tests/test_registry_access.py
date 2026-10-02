@@ -257,3 +257,58 @@ def test_fast_read_is_read_only_and_refused_by_save(sample, tmp_path):
 def test_fast_read_missing_ok_default(tmp_path):
     reg = read_register_fast(tmp_path / "nope.yaml")
     assert reg.records() == [] and reg.read_only is True
+
+
+# --- rac 1.3: validate_register (report, flag-don't-break; A.4 enum + remainder) ---
+
+from otaman_core.registry_access import validate_register  # noqa: E402
+
+
+def _reg(records):
+    from otaman_core.registry_access import Register
+
+    return Register(data={"outcomes": records}, records_key="outcomes")
+
+
+def test_validate_clean_record_has_no_violations():
+    reg = _reg(
+        [
+            {
+                "id": "JTBD-1",
+                "status": "Done",
+                "category": "X",
+                "statement": {"as-a": "u", "i-want-to": "x", "so-i-can": "y"},
+            }
+        ]
+    )
+    assert validate_register(reg) == []
+
+
+def test_validate_flags_done_partial_with_migration_hint():
+    reg = _reg([{"id": "JTBD-7", "status": "Done-Partial"}])
+    v = validate_register(reg)
+    assert any("JTBD-7" in m and "abolished" in m and "remainder" in m for m in v)
+
+
+def test_validate_flags_unknown_status():
+    reg = _reg([{"id": "JTBD-9", "status": "Considering"}])  # solution vocab, not A.4
+    assert (
+        any("JTBD-9" in m and "status" in m for m in v) if (v := validate_register(reg)) else False
+    )
+
+
+def test_validate_accepts_the_six_enum_values():
+    for s in ("Drafting", "Backlog", "Approved", "In-Progress", "Done", "Retired"):
+        assert validate_register(_reg([{"id": "x", "status": s}])) == []
+
+
+def test_validate_flags_remainder_wrong_type():
+    reg = _reg([{"id": "JTBD-1", "status": "Done", "remainder": ["not", "a", "string"]}])
+    assert any("remainder" in m for m in validate_register(reg))
+
+
+def test_validate_is_a_report_not_a_gate():
+    # a register full of violations returns a list, never raises
+    reg = _reg([{"id": "a", "status": "Done-Partial"}, {"status": "Nope"}, "junk"])
+    v = validate_register(reg)
+    assert isinstance(v, list) and len(v) >= 3

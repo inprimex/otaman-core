@@ -258,6 +258,56 @@ def apply_transition(
         record[fname] = fval
 
 
+#: The outcomes-registry schema (rac 1.3), shipped in the package.
+_OUTCOMES_SCHEMA_PATH = Path(__file__).parent / "schemas" / "outcomes-registry-schema.yaml"
+
+#: The abolished status (rac 1.3 / spec-agent A.4 ruling) — flagged with a migration hint.
+_ABOLISHED_STATUS = "Done-Partial"
+
+
+def validate_register(register: Register, *, schema_path: Path | None = None) -> list[str]:
+    """Report canon violations in *register* — a REPORTING tool, never a load gate.
+
+    Validates each record against the outcomes-registry schema (rac 1.3): the A.4 status
+    enum (``Done-Partial`` abolished), ``remainder`` as a string, the identity +
+    statement shape. Returns ``["<id or index>: <message>", …]`` — EMPTY when clean. It
+    does NOT raise and callers do NOT gate loading on it: the seven legacy Done-Partial
+    rows stay readable until cofounder's 1.4 migration converts them to Done + remainder
+    (flag-don't-break, spec-agent-confirmed). Historical transitions are validated
+    leniently (additionalProperties) — the materialized spec is corpus too, and a
+    reader must not choke on an old entry's shape.
+
+    A ``Done-Partial`` status gets a dedicated migration hint on top of the generic
+    enum error, so the surface says what to do, not just what is wrong.
+    """
+    import yaml
+
+    try:
+        import jsonschema
+    except ImportError:  # pragma: no cover - jsonschema is a core dep
+        return []
+    path = schema_path or _OUTCOMES_SCHEMA_PATH
+    with open(path, encoding="utf-8") as f:
+        item_schema = yaml.safe_load(f)["definitions"]["outcome"]
+    validator = jsonschema.Draft7Validator(item_schema)
+
+    out: list[str] = []
+    for i, rec in enumerate(register.records()):
+        if not isinstance(rec, Mapping):
+            out.append(f"[{i}]: record is not a mapping")
+            continue
+        rid = rec.get("id") if isinstance(rec.get("id"), str) else f"[{i}]"
+        if rec.get("status") == _ABOLISHED_STATUS:
+            out.append(
+                f"{rid}: status {_ABOLISHED_STATUS!r} is abolished — migrate to Done with a "
+                "required remainder: naming the cut scope (rac 1.3 / cofounder 1.4)"
+            )
+        for err in sorted(validator.iter_errors(rec), key=lambda e: list(e.path)):
+            field = ".".join(str(p) for p in err.path) or "(record)"
+            out.append(f"{rid}: {field}: {err.message}")
+    return out
+
+
 def run_contract_suite(
     *,
     load,
@@ -323,4 +373,5 @@ __all__ = [
     "read_register_fast",
     "run_contract_suite",
     "save_register",
+    "validate_register",
 ]
