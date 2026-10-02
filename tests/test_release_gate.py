@@ -79,3 +79,23 @@ def test_all_filed_via_the_reader_not_tasks_md(tmp_path):
 def test_no_tasks_is_eligible_when_gate_passed(tmp_path):
     v = _verdict(tmp_path, filed_tasks=[], task_ids=[], gate_passed=True)
     assert v.status == ELIGIBLE and v.total_tasks == 0
+
+
+def test_all_sentinel_does_not_make_a_cut_eligible(tmp_path):
+    # a blanket --all filing must NOT close an individually-unfiled task for a cut
+    v = _verdict(tmp_path, filed_tasks=["*"], task_ids=["1.1", "2.3"], gate_passed=True)
+    # (_verdict files "*" as the Completed spec -> COMPLETED_ALL sentinel)
+    assert v.status == TASKS_OUTSTANDING
+    assert "1.1" in v.outstanding and "2.3" in v.outstanding
+
+
+def test_caller_can_pass_a_prefiled_map(tmp_path):
+    # the fleet-wide seam: pass filed= to avoid a per-change bus scan
+    tasks_path = tmp_path / "tasks.md"
+    tasks_path.write_text("# tasks\n", encoding="utf-8")
+    from otaman_core.release_gate import cut_eligibility
+
+    v = cut_eligibility(
+        tmp_path, "chg", ["1.1"], _CONFIG, tasks_path, gate_passed=True, filed={"1.1": None}
+    )
+    assert v.status == ELIGIBLE and v.complete_tasks == 1

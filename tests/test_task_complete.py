@@ -59,6 +59,10 @@ def _file_complete(
         # (cli #212 collision — both lines live in the corpus)
         ("1.7 @otaman-bridge Spike", "1.7"),
         ("1.7-bis @otaman-bridge codegraph", "1.7-bis"),
+        # letter suffix on the MINOR segment (cli rcg-1.3) — not truncated, not collided
+        ("1.1b @otaman-plugin x", "1.1b"),
+        ("2.4a @otaman-cli x", "2.4a"),
+        ("0.1b legacy", "0.1b"),
         ("no id here", None),
     ],
 )
@@ -282,3 +286,23 @@ def test_all_sentinel_covers_any_task(git_repo):
     _git(git_repo, "commit", "-q", "-m", "init")
     filed = {COMPLETED_ALL: datetime(2026, 1, 1, tzinfo=UTC)}
     assert is_effectively_complete("3.7", filed, tasks) is True
+
+
+def test_minor_suffixed_ids_do_not_collide():
+    # 2.3a / 2.4a / 2.4b were all truncated to '2' before the fix (cli rcg-1.3)
+    ids = {task_id_of(f"{x} @otaman-plugin t") for x in ("2.3a", "2.4a", "2.4b", "2")}
+    assert ids == {"2.3a", "2.4a", "2.4b", "2"}  # four distinct ids, no collision
+
+
+@needs_git
+def test_honor_all_false_ignores_the_all_sentinel(git_repo):
+    tasks = git_repo / "tasks.md"
+    tasks.write_text("- [ ] 2.3 x\n", encoding="utf-8")
+    _git(git_repo, "add", "tasks.md")
+    _git(git_repo, "commit", "-q", "-m", "init")
+    filed = {COMPLETED_ALL: datetime(2026, 1, 1, tzinfo=UTC)}
+    # dispatch honors --all; a cut (honor_all=False) demands a per-task filing
+    assert is_effectively_complete("2.3", filed, tasks) is True
+    assert is_effectively_complete("2.3", filed, tasks, honor_all=False) is False
+    # a direct filing still counts under honor_all=False
+    assert is_effectively_complete("2.3", {"2.3": None}, tasks, honor_all=False) is True
