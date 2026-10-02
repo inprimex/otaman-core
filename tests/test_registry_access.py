@@ -99,10 +99,11 @@ def test_field_change_records_old_and_new(sample):
         approval=_approval(),
     )
     t = get(reg, "JTBD-1-example")["transitions"][-1]
-    # chosen-solution was absent -> old omitted (finding 3), new recorded
-    assert t["field"] == "chosen-solution" and "old" not in t and t["new"] == "SOL-9"
+    # A.5 changes list: chosen-solution was absent -> old omitted (finding 3), new recorded
+    assert t["changes"] == [{"field": "chosen-solution", "new": "SOL-9"}]
+    assert "field" not in t  # the flat trio is superseded by the changes list
     assert get(reg, "JTBD-1-example")["chosen-solution"] == "SOL-9"
-    assert "status" not in t  # to_status=None -> no status change recorded
+    assert "to" not in t  # to_status=None -> no status change recorded
 
 
 def test_unknown_outcome_refuses(sample):
@@ -195,6 +196,57 @@ def test_choose_and_fund_record_both_transitions(sample):
     assert actions[-2:] == ["choose", "accept-cost"]  # both kept, not collapsed
 
 
+# --- A.5 transition shape: changes list (multi-field) + structured hat --------
+
+
+def test_multi_field_change_records_a_changes_entry_each(sample):
+    reg = load_register(sample)
+    # accept-cost sets several fields at once -> one changes entry per field (A.5), the
+    # audit the flat single-field trio could not carry.
+    apply_transition(
+        reg,
+        "JTBD-1-example",
+        action="accept-cost",
+        by="ceo-agent",
+        at="t",
+        fields={"cost-accepted": True, "budget": 42},
+        approval=_approval(),
+    )
+    t = get(reg, "JTBD-1-example")["transitions"][-1]
+    by_field = {c["field"]: c for c in t["changes"]}
+    assert by_field["cost-accepted"]["new"] is True and "old" not in by_field["cost-accepted"]
+    assert by_field["budget"]["new"] == 42 and "old" not in by_field["budget"]
+    assert "field" not in t  # flat trio superseded
+
+
+def test_structured_hat_is_recorded_on_the_approval(sample):
+    reg = load_register(sample)
+    approval = {**_approval(), "via": "hat", "hat": "ceo"}
+    apply_transition(
+        reg,
+        "JTBD-1-example",
+        action="accept-cost",
+        by="ceo-agent",
+        at="t",
+        fields={"cost-accepted": True},
+        approval=approval,
+    )
+    assert get(reg, "JTBD-1-example")["transitions"][-1]["approval"]["hat"] == "ceo"
+
+
+def test_blank_hat_is_refused(sample):
+    reg = load_register(sample)
+    with pytest.raises(RegistryAccessError, match="hat"):
+        apply_transition(
+            reg,
+            "JTBD-1-example",
+            action="accept-cost",
+            by="ceo-agent",
+            at="t",
+            approval={**_approval(), "hat": "  "},
+        )
+
+
 # --- the contract suite ------------------------------------------------------
 
 
@@ -230,8 +282,8 @@ def test_first_set_omits_old(sample):
         fields={"chosen-solution": "SOL-1"},
         approval=_approval(),
     )
-    entry = get(reg, "JTBD-1-example")["transitions"][-1]
-    assert "old" not in entry and entry["new"] == "SOL-1"
+    ch = get(reg, "JTBD-1-example")["transitions"][-1]["changes"][0]
+    assert "old" not in ch and ch["new"] == "SOL-1"
     # a subsequent change DOES record old
     apply_transition(
         reg,
@@ -242,8 +294,8 @@ def test_first_set_omits_old(sample):
         fields={"chosen-solution": "SOL-2"},
         approval=_approval(),
     )
-    entry2 = get(reg, "JTBD-1-example")["transitions"][-1]
-    assert entry2["old"] == "SOL-1" and entry2["new"] == "SOL-2"
+    ch2 = get(reg, "JTBD-1-example")["transitions"][-1]["changes"][0]
+    assert ch2["old"] == "SOL-1" and ch2["new"] == "SOL-2"
 
 
 def test_fast_read_is_read_only_and_refused_by_save(sample, tmp_path):
@@ -305,6 +357,17 @@ def test_validate_accepts_the_six_enum_values():
 def test_validate_flags_remainder_wrong_type():
     reg = _reg([{"id": "JTBD-1", "status": "Done", "remainder": ["not", "a", "string"]}])
     assert any("remainder" in m for m in validate_register(reg))
+
+
+def test_validate_flags_a_malformed_changes_entry():
+    # the A.5 transition sub-shape is LIVE, not a vacuous declaration: a changes entry
+    # missing `new` is flagged, while a well-formed one (old omitted) passes.
+    bad = _reg([{"id": "J", "status": "Done", "transitions": [{"changes": [{"field": "x"}]}]}])
+    assert any("changes" in m or "new" in m for m in validate_register(bad))
+    good = _reg(
+        [{"id": "J", "status": "Done", "transitions": [{"changes": [{"field": "x", "new": 1}]}]}]
+    )
+    assert validate_register(good) == []
 
 
 def test_validate_is_a_report_not_a_gate():

@@ -191,6 +191,12 @@ def _validate_approval(approval: Any, where: str) -> None:
     for field in ("at", "spec"):
         if not isinstance(approval.get(field), str) or not approval[field].strip():
             raise RegistryAccessError(f"{where}: approval.{field} is required")
+    # ``hat`` is optional (A.5) — a structured record of WHICH hat authorized, so D2's
+    # "choose (cto) and accept-cost (ceo) as separate entries with their hats" is
+    # queryable rather than read off a prose note. When present it must name a hat.
+    hat = approval.get("hat")
+    if hat is not None and (not isinstance(hat, str) or not hat.strip()):
+        raise RegistryAccessError(f"{where}: approval.hat, when present, must be non-empty")
 
 
 def apply_transition(
@@ -208,10 +214,17 @@ def apply_transition(
     """Apply an append-only transition to *outcome_id* — the only status/field write path.
 
     ALWAYS appends a transition audit entry (``at``/``by``/``action`` + ``from``/``to``
-    for a status move, + one ``field``/``old``/``new`` per changed field, + ``note``),
-    then applies the change to the record in place. Because this is the sole write path
-    and it always records the transition, a transitionless status write cannot happen
-    (the contract-suite clause).
+    for a status move, + a ``changes`` list of ``{field, old?, new}`` for every changed
+    field, + ``note``), then applies the change to the record in place. Because this is
+    the sole write path and it always records the transition, a transitionless status
+    write cannot happen (the contract-suite clause).
+
+    The ``changes`` list is the pinned A.5 shape (spec d439a5c; cli's measured shape,
+    ``extra="forbid"`` on its side): one entry per field, carrying ``old`` only when the
+    field had a previous value — so ``accept-cost`` (which sets several fields at once)
+    gets a complete audit, and a first-ever ``choose`` no longer reads as "the previous
+    choice was null". It supersedes the flat ``field``/``old``/``new`` trio that could
+    only carry one field; historical rows keep the flat trio and readers accept both.
 
     ``to_status=None`` means NO status change (request-estimate and choose set fields
     only). ``fields`` may set multiple fields in one transition. An action in
@@ -236,15 +249,18 @@ def apply_transition(
     if to_status is not None:
         entry["from"] = record.get("status")
         entry["to"] = to_status
-    if len(changed) == 1:
-        ((fname, fval),) = changed.items()
-        entry["field"] = fname
-        # omit ``old`` when the field was ABSENT, so a first-ever set does not read as
-        # "the previous value was null" — ``"old" in entry`` then means what it says
-        # (cli rac-1.2 finding 3).
-        if fname in record:
-            entry["old"] = record[fname]
-        entry["new"] = fval
+    if changed:
+        # the A.5 ``changes`` list: one entry per changed field, carrying ``old`` only
+        # when the field had a previous value (``"old" in ch`` then means what it says —
+        # not "the previous value was null"; cli rac-1.2 finding 3, per entry).
+        change_entries: list[dict[str, Any]] = []
+        for fname, fval in changed.items():
+            ch: dict[str, Any] = {"field": fname}
+            if fname in record:
+                ch["old"] = record[fname]
+            ch["new"] = fval
+            change_entries.append(ch)
+        entry["changes"] = change_entries
     if note:
         entry["note"] = note
     if approval is not None:

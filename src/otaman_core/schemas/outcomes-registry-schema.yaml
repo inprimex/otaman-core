@@ -35,7 +35,8 @@ definitions:
         enum: [Drafting, Backlog, Approved, In-Progress, Done, Retired]
       remainder:
         type: string
-        description: "What shipped scope was cut (required when a Done record cut scope; replaces Done-Partial)."
+        minLength: 1
+        description: "What shipped scope was cut (required when a Done record cut scope; replaces Done-Partial). Optional in the schema — the required-when-cut obligation is enforced by the 1.4 migration + a validate flag, not required-if-Done, which would reject the 30 clean Done records that cut nothing."
       priority:
         type: string
         enum: [P0, P1, P2, P3]
@@ -47,7 +48,33 @@ definitions:
         additionalProperties: true
         required: [as-a, i-want-to, so-i-can]
       transitions:
+        # Append-only audit entries. The A.5 pinned shape (spec d439a5c) carries a
+        # `changes` list of {field, old?, new} + an `approval` with an optional structured
+        # `hat`; historical rows carry the flat `field`/`old`/`new` trio. Lenient
+        # (additionalProperties) on BOTH: a reader must not choke on an old entry, and the
+        # pin only constrains the sub-shapes WHEN present (the materialized spec is corpus).
+        # Scalar leaves (at/by/action/from/to) are left UNTYPED on purpose: ruamel loads
+        # an unquoted ISO `at:` as a datetime, so `type: string` here would false-flag the
+        # whole declared corpus (the 116-error class). The pin constrains only the two
+        # SUB-SHAPES A.5 introduced — `changes` and `approval` — when present.
         type: array
         items:
           type: object
           additionalProperties: true
+          properties:
+            changes:  # A.5 pinned shape: one {field, old?, new} entry per changed field
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+                required: [field, new]
+                properties:
+                  field: {type: string}
+                  old: {}
+                  new: {}
+            approval:
+              type: object
+              additionalProperties: true
+              properties:
+                via: {type: string, enum: [hitl, roster-role, hat]}
+                hat: {type: string, minLength: 1}
