@@ -99,7 +99,8 @@ def test_field_change_records_old_and_new(sample):
         approval=_approval(),
     )
     t = get(reg, "JTBD-1-example")["transitions"][-1]
-    assert t["field"] == "chosen-solution" and t["old"] is None and t["new"] == "SOL-9"
+    # chosen-solution was absent -> old omitted (finding 3), new recorded
+    assert t["field"] == "chosen-solution" and "old" not in t and t["new"] == "SOL-9"
     assert get(reg, "JTBD-1-example")["chosen-solution"] == "SOL-9"
     assert "status" not in t  # to_status=None -> no status change recorded
 
@@ -202,3 +203,57 @@ def test_contract_suite_passes_for_the_file_backend(sample, tmp_path):
         load=load_register, save=save_register, sample_path=sample, tmp_path=tmp_path
     )
     assert failures == []
+
+
+# --- cli rac-1.2 rewire findings (1 missing_ok, 3 omit-old, 5 fast read) ------
+
+from otaman_core.registry_access import read_register_fast  # noqa: E402
+
+
+def test_load_register_missing_ok(tmp_path):
+    missing = tmp_path / "nope" / "outcomes.yaml"
+    with pytest.raises(FileNotFoundError):
+        load_register(missing)  # default raises
+    reg = load_register(missing, missing_ok=True)  # create-fresh case
+    assert reg.records() == [] and reg.read_only is False
+
+
+def test_first_set_omits_old(sample):
+    reg = load_register(sample)
+    # 'chosen-solution' is absent on the record -> first set must omit old, not old: None
+    apply_transition(
+        reg,
+        "JTBD-1-example",
+        action="choose",
+        by="cto",
+        at="t",
+        fields={"chosen-solution": "SOL-1"},
+        approval=_approval(),
+    )
+    entry = get(reg, "JTBD-1-example")["transitions"][-1]
+    assert "old" not in entry and entry["new"] == "SOL-1"
+    # a subsequent change DOES record old
+    apply_transition(
+        reg,
+        "JTBD-1-example",
+        action="choose",
+        by="cto",
+        at="t2",
+        fields={"chosen-solution": "SOL-2"},
+        approval=_approval(),
+    )
+    entry2 = get(reg, "JTBD-1-example")["transitions"][-1]
+    assert entry2["old"] == "SOL-1" and entry2["new"] == "SOL-2"
+
+
+def test_fast_read_is_read_only_and_refused_by_save(sample, tmp_path):
+    reg = read_register_fast(sample)
+    assert reg.read_only is True
+    assert get(reg, "JTBD-1-example")["status"] == "Approved"  # reads fine
+    with pytest.raises(RegistryAccessError, match="display"):
+        save_register(reg, tmp_path / "out.yaml")  # refuses a lossy save
+
+
+def test_fast_read_missing_ok_default(tmp_path):
+    reg = read_register_fast(tmp_path / "nope.yaml")
+    assert reg.records() == [] and reg.read_only is True

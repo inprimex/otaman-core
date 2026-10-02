@@ -75,21 +75,71 @@ class Register:
 
     data: Any
     records_key: str = DEFAULT_RECORDS_KEY
+    #: True for a fast (lossy, pyyaml) display read — it has dropped comments/quotes, so
+    #: :func:`save_register` refuses it (writing it would corrupt the human annotations).
+    read_only: bool = False
 
     def records(self) -> list[Any]:
         recs = self.data.get(self.records_key) if isinstance(self.data, Mapping) else None
         return list(recs) if isinstance(recs, Sequence) else []
 
 
-def load_register(path: Path, *, records_key: str = DEFAULT_RECORDS_KEY) -> Register:
-    """Load a register file round-trip (comments + key order preserved)."""
+def load_register(
+    path: Path, *, records_key: str = DEFAULT_RECORDS_KEY, missing_ok: bool = False
+) -> Register:
+    """Load a register file round-trip (comments + key order preserved).
+
+    ``missing_ok=True`` returns an empty register when *path* does not exist — the
+    create-fresh case (a program whose register is created by its first write), which
+    the reader this replaces handled by returning ``{}`` (cli rac-1.2 finding 1). The
+    default raises ``FileNotFoundError`` so a typo'd path is not silently an empty
+    register under a verb that reads.
+    """
+    if missing_ok and not path.exists():
+        return Register(data={records_key: []}, records_key=records_key)
     with open(path, encoding="utf-8") as f:
         data = _yaml().load(f)
     return Register(data=data if data is not None else {records_key: []}, records_key=records_key)
 
 
+def read_register_fast(
+    path: Path, *, records_key: str = DEFAULT_RECORDS_KEY, missing_ok: bool = True
+) -> Register:
+    """A FAST, lossy, read-only load for display paths (cli rac-1.2 finding 5).
+
+    The round-trip :func:`load_register` is ~700ms on the live register (ruamel preserves
+    every comment), too slow for a console frame that reads it several times. This uses
+    the C-accelerated safe loader instead (~0.1ms) and marks the result
+    :attr:`Register.read_only` — it has dropped comments and quote styles, so it is for
+    READING only; :func:`save_register` refuses it. Use :func:`load_register` for any
+    path that writes.
+    """
+    import yaml
+
+    if missing_ok and not path.exists():
+        return Register(data={records_key: []}, records_key=records_key, read_only=True)
+    loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader
+    with open(path, encoding="utf-8") as f:
+        data = yaml.load(f, Loader=loader)
+    return Register(
+        data=data if isinstance(data, dict) else {records_key: []},
+        records_key=records_key,
+        read_only=True,
+    )
+
+
 def save_register(register: Register, path: Path) -> None:
-    """Write *register* back byte-equivalent (round-trip serializer)."""
+    """Write *register* back byte-equivalent (round-trip serializer).
+
+    Refuses a :attr:`Register.read_only` register — one from :func:`read_register_fast`
+    has already lost its comments and quote styles, so writing it would silently corrupt
+    the human annotations (cli rac-1.2 finding 5).
+    """
+    if register.read_only:
+        raise RegistryAccessError(
+            "cannot save a fast/display register (read_register_fast is lossy); "
+            "load_register for a path that writes"
+        )
     with open(path, "w", encoding="utf-8") as f:
         _yaml().dump(register.data, f)
 
@@ -189,7 +239,11 @@ def apply_transition(
     if len(changed) == 1:
         ((fname, fval),) = changed.items()
         entry["field"] = fname
-        entry["old"] = record.get(fname)
+        # omit ``old`` when the field was ABSENT, so a first-ever set does not read as
+        # "the previous value was null" — ``"old" in entry`` then means what it says
+        # (cli rac-1.2 finding 3).
+        if fname in record:
+            entry["old"] = record[fname]
         entry["new"] = fval
     if note:
         entry["note"] = note
@@ -266,6 +320,7 @@ __all__ = [
     "dumps",
     "get",
     "load_register",
+    "read_register_fast",
     "run_contract_suite",
     "save_register",
 ]
