@@ -257,6 +257,32 @@ def test_contract_suite_passes_for_the_file_backend(sample, tmp_path):
     assert failures == []
 
 
+# --- rac 2.2: the RegistryBackend seam (Protocol + FileBackend) ---------------
+
+from otaman_core.registry_access import FileBackend, RegistryBackend  # noqa: E402
+
+
+def test_file_backend_satisfies_the_protocol():
+    # runtime_checkable: the first backend IS a RegistryBackend
+    assert isinstance(FileBackend(), RegistryBackend)
+
+
+def test_contract_suite_passes_for_the_backend_object(sample, tmp_path):
+    # the preferred 2.2 form: run the suite against a RegistryBackend, not raw callables
+    assert run_contract_suite(backend=FileBackend(), sample_path=sample, tmp_path=tmp_path) == []
+
+
+def test_file_backend_round_trips_byte_equivalent(sample):
+    be = FileBackend()
+    reg = be.load(sample)
+    assert dumps(reg) == sample.read_text(encoding="utf-8")  # the seam preserves annotations
+
+
+def test_suite_requires_a_backend_or_callables(sample, tmp_path):
+    with pytest.raises(RegistryAccessError, match="backend="):
+        run_contract_suite(sample_path=sample, tmp_path=tmp_path)  # neither form given
+
+
 # --- cli rac-1.2 rewire findings (1 missing_ok, 3 omit-old, 5 fast read) ------
 
 from otaman_core.registry_access import read_register_fast  # noqa: E402
