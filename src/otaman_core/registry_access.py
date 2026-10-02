@@ -20,11 +20,14 @@ The write contract (D3), enforced here:
   resolved roster human, mirroring ``lifecycle.record_transition``), while the surface
   OBTAINS it (roster/hat/HITL — core grows no roster reader, Q3).
 
-The file backend is ruamel round-trip (comment + key-order preserving) so writes are
-byte-equivalent over the human-annotated registers (spec-agent ruling A — pyyaml would
-strip the annotations). The transition shape matches canon Appendix A.5; full schema
-validation (Appendix A, the ``remainder`` field, abolishing Done-Partial) is rac 1.3,
-and the backend Protocol is extracted in rac 2.2 — 1.1 is the concrete chokepoint.
+The storage seam is the :class:`RegistryBackend` Protocol (rac 2.2): the write contract
+and schema validation sit ABOVE it on an in-memory :class:`Register`, so a backend varies
+only (de)serialization. :class:`FileBackend` ships first — ruamel round-trip (comment +
+key-order preserving) so writes are byte-equivalent over the human-annotated registers
+(spec-agent ruling A — pyyaml would strip the annotations); :func:`run_contract_suite`
+proves any backend preserves the clauses. The transition shape is canon Appendix A.5
+(the ``changes`` list + structured ``approval.hat``); full schema validation (Appendix A,
+the ``remainder`` field, abolishing Done-Partial) is :func:`validate_register` (rac 1.3).
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ import io
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from ruamel.yaml import YAML
 
@@ -149,6 +152,43 @@ def dumps(register: Register) -> str:
     buf = io.StringIO()
     _yaml().dump(register.data, buf)
     return buf.getvalue()
+
+
+@runtime_checkable
+class RegistryBackend(Protocol):
+    """The pluggable storage seam (rac 2.2 / design D4) — the one axis a backend varies.
+
+    The write CONTRACT (append-only transitions, approval presence/shape, schema
+    validation) lives ABOVE the backend in :func:`apply_transition`,
+    :func:`create_record` and :func:`validate_register`, which operate on an in-memory
+    :class:`Register` and are backend-agnostic. So the seam a backend must implement is
+    only (de)serialization — ``load`` / ``save`` — and :func:`run_contract_suite` proves
+    any backend preserves the contract clauses (byte-equivalent round-trip + the
+    transitionless-write-fails guarantee). The file backend ships first (D4: the seam
+    ships; a second backend is its own change); it is byte-equivalent to today.
+    """
+
+    def load(self, path: Path, *, records_key: str = ..., missing_ok: bool = ...) -> Register: ...
+
+    def save(self, register: Register, path: Path) -> None: ...
+
+
+class FileBackend:
+    """The ruamel round-trip file backend — the first :class:`RegistryBackend` (D4).
+
+    A thin binding over the module-level functions, which remain the concrete file logic
+    (so cli's name-probe contract — ``load_register``/``save_register``/… — is unchanged;
+    the seam is additive). Round-trip YAML keeps comments + key order, so writes are
+    byte-equivalent over the human-annotated registers.
+    """
+
+    def load(
+        self, path: Path, *, records_key: str = DEFAULT_RECORDS_KEY, missing_ok: bool = False
+    ) -> Register:
+        return load_register(path, records_key=records_key, missing_ok=missing_ok)
+
+    def save(self, register: Register, path: Path) -> None:
+        save_register(register, path)
 
 
 def _raw_records(register: Register) -> Any:
@@ -326,21 +366,36 @@ def validate_register(register: Register, *, schema_path: Path | None = None) ->
 
 def run_contract_suite(
     *,
-    load,
-    save,
+    backend: RegistryBackend | None = None,
+    load: Any = None,
+    save: Any = None,
     sample_path: Path,
     tmp_path: Path,
 ) -> list[str]:
     """Run the backend-agnostic contract suite; return a list of FAILURES (empty = pass).
 
-    The suite every registry backend must pass (rac 2.2 runs it against the Protocol;
-    1.1 runs it against this file backend). It asserts the contract CLAUSES, not an
-    implementation: (1) round-trip is byte-equivalent (comments survive); (2) a status
-    write goes through a transition — after a transition the record's transitions grew by
-    exactly one and the status moved together (no transitionless write); (3) an
-    approval-required action with no approval fails. *load*/*save* are the backend's
-    functions; *sample_path* is a register fixture WITH comments.
+    The suite every registry backend must pass (rac 2.2 runs it against a
+    :class:`RegistryBackend`; 1.1 ran it against the file logic). It asserts the contract
+    CLAUSES, not an implementation:
+
+    1. round-trip is byte-equivalent (comments + key order survive);
+    2. a status write goes through a transition — after a transition the record's
+       transitions grew by exactly one and the status moved together (no transitionless
+       write);
+    3. an approval-required action with no approval fails (HITL in the write path);
+    4. ``create_record`` persists — a created record survives save → reload;
+    5. serialization is STABLE across a verb (D4 byte-equivalence "on every existing
+       verb"): save-after-a-verb, reload, save again → the two saves are byte-identical,
+       so a write does not churn the file's formatting.
+
+    Pass a *backend* (preferred) or the raw *load*/*save* callables (the 1.1 form).
+    *sample_path* is a register fixture WITH comments.
     """
+    if backend is not None:
+        load, save = backend.load, backend.save
+    if load is None or save is None:
+        raise RegistryAccessError("run_contract_suite needs backend= or both load= and save=")
+
     failures: list[str] = []
     original = sample_path.read_text(encoding="utf-8")
 
@@ -372,6 +427,28 @@ def run_contract_suite(
         failures.append("accept-cost without approval was permitted (HITL not enforced)")
     except RegistryAccessError:
         pass
+
+    # (4) create_record persists through save → reload
+    reg = load(sample_path)
+    created = tmp_path / "created.yaml"
+    create_record(reg, {"id": "JTBD-contract-suite", "status": "Drafting"})
+    save(reg, created)
+    if get(load(created), "JTBD-contract-suite") is None:
+        failures.append("create_record did not persist through save/reload")
+
+    # (5) serialization is stable across a verb (byte-equivalence on every existing verb)
+    reg = load(sample_path)
+    rid = reg.records()[0]["id"]
+    apply_transition(
+        reg, rid, action="promote", by="agent", at="2026-01-01T00:00:00Z", to_status="Done"
+    )
+    first = tmp_path / "verb-1.yaml"
+    save(reg, first)
+    second = tmp_path / "verb-2.yaml"
+    save(load(first), second)
+    if first.read_text(encoding="utf-8") != second.read_text(encoding="utf-8"):
+        failures.append("serialization is not stable across a verb (a write churns formatting)")
+
     return failures
 
 
@@ -379,8 +456,10 @@ __all__ = [
     "APPROVAL_REQUIRED_ACTIONS",
     "APPROVAL_VIA",
     "DEFAULT_RECORDS_KEY",
+    "FileBackend",
     "Register",
     "RegistryAccessError",
+    "RegistryBackend",
     "apply_transition",
     "create_record",
     "dumps",
