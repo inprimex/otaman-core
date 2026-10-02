@@ -75,16 +75,20 @@ def _subject_from_body(body: str) -> str:
 def _repos_from_routing(routing_text: str) -> list[str]:
     """Repo slugs named in the Routing section (its ruled content names repos).
 
-    The repo list leads the section ("otaman-cli, otaman-core; otaman-specs. <who is
-    next>"), so read up to the first sentence break / newline and pull the dash-slug
-    tokens, order-stable and deduped. lint validates them against ``platform_repos``,
-    so an over-broad grab surfaces as a visible unknown-repo finding, never silent.
+    The repo LEADS each clause, with prose/parentheticals following
+    ("otaman-specs (canon delta); otaman-cli (implementation — cli-agent)"), so take
+    the first token of each comma/semicolon-separated clause and keep it only if the
+    whole token is a slug. Grabbing every dash-slug instead pulled prose like
+    ``cli-agent`` out of a parenthetical and flagged it as a false unknown-repo (cli
+    #253: 4 of 10 pending proposals mis-scored, one to 0/100). Order-stable, deduped;
+    bounded to the first sentence (repos precede any trailing "who is next" prose).
     """
     head = re.split(r"\.\s|\n", routing_text, maxsplit=1)[0]
     out: list[str] = []
-    for slug in _REPO_SLUG_RE.findall(head):
-        if slug not in out:
-            out.append(slug)
+    for clause in re.split(r"[,;]", head):
+        token = clause.strip().split("(", 1)[0].split()[0] if clause.strip() else ""
+        if _REPO_SLUG_RE.fullmatch(token) and token not in out:
+            out.append(token)
     return out
 
 
@@ -105,8 +109,14 @@ def proposal_from_scr(
     """
     mapping: dict[str, Any] = dict(section_bodies(scr_body))
     mapping["title"] = subject.strip() if subject else _subject_from_body(scr_body)
+    # the secret scan reads proposal["body"] — without this the whole SCR was never
+    # scanned (cli #253: scan ran on "" for every SCR since it shipped).
+    mapping["body"] = scr_body
     if openspec is not None:
-        outcome = openspec.get("outcome")
+        # the ID lives in outcome-id; outcome holds prose (measured 0/71 ids in
+        # outcome on the live corpus, cli #253). Prefer the id key, fall back to
+        # outcome only if no outcome-id is present.
+        outcome = openspec.get("outcome-id") or openspec.get("outcome")
         mapping["outcome"] = outcome if outcome is not None else ""
     mapping["affected_repos"] = _repos_from_routing(mapping.get("routing", "") or "")
     return mapping
@@ -118,8 +128,11 @@ _DEDUCTION = {"error": 25, "warn": 10}
 #: Placeholder tokens forbidden in critical fields.
 _PLACEHOLDER = re.compile(r"\b(TBD|TODO|FIXME|XXX)\b|\?\?\?", re.IGNORECASE)
 
-#: An outcome/JTBD id shape, e.g. ``JTBD-57`` or ``JTBD-99-102``.
-_OUTCOME_ID = re.compile(r"^[A-Za-z]+-\d+(?:-\d+)?$")
+#: An outcome/JTBD id shape. The registry writes ``id-then-slug``
+#: (``JTBD-118-interactive-spec-editing``, ``JTBD-1-one-owner-agent-per-repo``), so a
+#: trailing ``-<slug>`` is accepted — still rejecting prose (which carries spaces) and
+#: still accepting ``JTBD-57`` / ``JTBD-99-102`` (cli #253).
+_OUTCOME_ID = re.compile(r"^[A-Za-z]+-\d+(?:-[A-Za-z0-9-]+)?$")
 
 #: gitleaks-lite: high-confidence secret patterns scanned on the body. Deliberately
 #: conservative — the goal is catching a pasted credential, not full DLP.
