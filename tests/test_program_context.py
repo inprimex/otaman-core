@@ -22,6 +22,10 @@ from otaman_core.program_context import (
 def _make_program(workspace: Path, org: str, program: str, *, state: str | None = None) -> Path:
     prog = workspace / "orgs" / org / "programs" / program
     prog.mkdir(parents=True, exist_ok=True)
+    # a real program carries a meta dir with platform.yaml (+ bus) — the marker
+    meta = prog / "meta"
+    (meta / ".agents" / "bus").mkdir(parents=True, exist_ok=True)
+    (meta / "platform.yaml").write_text("project: x\n", encoding="utf-8")
     if state is not None:
         reg = workspace / "orgs" / org / "config" / "lifecycle.yaml"
         reg.parent.mkdir(parents=True, exist_ok=True)
@@ -128,3 +132,15 @@ def test_refusal_with_zero_programs_advises_init(tmp_path):
         resolve_program(cwd=tmp_path, workspace_root=tmp_path)
     assert "otaman init" in str(ei.value)
     assert ei.value.programs == []
+
+
+def test_debris_without_marker_is_not_a_program(tmp_path):
+    # a dir under programs/ with no meta/platform.yaml is debris, not a program (cli #258)
+    real = _make_program(tmp_path, "acme", "alpha")
+    debris = tmp_path / "orgs" / "acme" / "programs" / "botched-copy"
+    debris.mkdir(parents=True)
+    (debris / "LICENSE").write_text("x", encoding="utf-8")
+    names = [p.name for p in enumerate_programs(tmp_path)]
+    assert names == ["alpha"]  # debris excluded
+    assert program_of_path(debris) is None  # cwd walk does not resolve debris to a program
+    assert real.exists()

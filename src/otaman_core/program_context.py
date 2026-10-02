@@ -64,12 +64,32 @@ class ProgramContextError(ValueError):
         self.programs = programs
 
 
+def _has_program_marker(d: Path) -> bool:
+    """Whether *d* actually holds a program: a child dir with a ``platform.yaml``.
+
+    The Otaman/meta folder of a real program carries ``platform.yaml`` (and a bus);
+    the path shape alone does not — a botched-copy directory under ``programs/`` (just a
+    ``LICENSE`` or a ``scripts/`` dir, no meta) matches the shape but is not a program
+    (cli #258: enumerate reported 3 where 1 exists). Requiring the marker makes core's
+    enumeration agree with cli's picker gate (a meta dir holding platform.yaml).
+    """
+    try:
+        return any((c / "platform.yaml").is_file() for c in d.iterdir() if c.is_dir())
+    except OSError:
+        return False
+
+
 def _is_program_dir(d: Path) -> bool:
-    """Whether *d* is a ``<...>/orgs/<org>/programs/<program>`` directory."""
+    """Whether *d* is a real ``<...>/orgs/<org>/programs/<program>`` program directory.
+
+    Both the path shape AND a program marker — the shape locates candidates, the marker
+    rejects debris that merely sits under ``programs/``.
+    """
     return (
         d.parent.name == "programs"
         and d.parent.parent.parent.name == "orgs"
         and d.parent.parent.name != ""
+        and _has_program_marker(d)
     )
 
 
@@ -110,8 +130,8 @@ def enumerate_programs(workspace_root: Path) -> list[Program]:
         if not org_dir.is_dir() or not programs_dir.is_dir():
             continue
         for prog_dir in sorted(programs_dir.iterdir()):
-            if not prog_dir.is_dir():
-                continue
+            if not prog_dir.is_dir() or not _has_program_marker(prog_dir):
+                continue  # skip debris under programs/ that has no meta/platform.yaml
             out.append(
                 Program(
                     name=prog_dir.name,
