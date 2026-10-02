@@ -21,6 +21,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from otaman_core.scr_template import SECTION_KEYS, section_bodies
+
 # ---------------------------------------------------------------------------
 # 1.1 — deterministic lint + 0-100 score
 
@@ -44,11 +46,71 @@ SCORE_TIERS: tuple[tuple[int, str], ...] = (
     (0, "failing"),
 )
 
-#: Front-matter fields a proposal must carry (the rubric's structural minimum).
-DEFAULT_REQUIRED_FIELDS: tuple[str, ...] = ("title", "outcome", "affected_repos", "artifacts")
+#: Fields a proposal must carry (spec-agent ruling A 20261001T205124 — the linter
+#: meets the corpus where it is): the seven decision-grade SCR sections (presence +
+#: non-placeholder, exactly what authors write) plus the derived ``title`` /
+#: ``outcome`` / ``affected_repos``. ``artifacts`` is NOT required — there are no
+#: artifacts at SCR time (they are what approval authorizes), so a required
+#: artifacts field scored every honest proposal down. Build the mapping from a real
+#: SCR with :func:`proposal_from_scr`.
+DEFAULT_REQUIRED_FIELDS: tuple[str, ...] = ("title", "outcome", "affected_repos", *SECTION_KEYS)
 
 #: Fields scanned for placeholder text (TBD/TODO/FIXME/???).
-CRITICAL_FIELDS: tuple[str, ...] = ("title", "outcome", "affected_repos", "artifacts")
+CRITICAL_FIELDS: tuple[str, ...] = ("title", "outcome", "affected_repos", *SECTION_KEYS)
+
+#: The ``## Subject:`` line of an SCR body — the proposal's title.
+_SUBJECT_RE = re.compile(r"^#{1,3}\s+Subject:\s*(.+?)\s*$", re.MULTILINE)
+
+#: A repo slug (contains a dash): ``otaman-core``, ``otaman-cli``. Used to pull
+#: ``affected_repos`` out of the Routing section's prose.
+_REPO_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b")
+
+
+def _subject_from_body(body: str) -> str:
+    """The proposal title from the SCR's ``## Subject:`` line (``""`` if absent)."""
+    match = _SUBJECT_RE.search(body)
+    return match.group(1).strip() if match else ""
+
+
+def _repos_from_routing(routing_text: str) -> list[str]:
+    """Repo slugs named in the Routing section (its ruled content names repos).
+
+    The repo list leads the section ("otaman-cli, otaman-core; otaman-specs. <who is
+    next>"), so read up to the first sentence break / newline and pull the dash-slug
+    tokens, order-stable and deduped. lint validates them against ``platform_repos``,
+    so an over-broad grab surfaces as a visible unknown-repo finding, never silent.
+    """
+    head = re.split(r"\.\s|\n", routing_text, maxsplit=1)[0]
+    out: list[str] = []
+    for slug in _REPO_SLUG_RE.findall(head):
+        if slug not in out:
+            out.append(slug)
+    return out
+
+
+def proposal_from_scr(
+    scr_body: str,
+    openspec: Mapping[str, Any] | None = None,
+    *,
+    subject: str | None = None,
+) -> dict[str, Any]:
+    """Map a real SCR body (+ its ``.openspec.yaml``) to a :func:`lint_proposal` input.
+
+    The ONE core extractor (single-home, spec-agent ruling A): lint meets the corpus
+    where it is rather than demanding fields nothing files. ``title`` <- the
+    ``## Subject:`` line (or *subject*); ``outcome`` <- ``openspec``'s outcome; the
+    seven decision-grade sections <- their bodies (``scr_template.section_bodies``);
+    ``affected_repos`` <- the Routing section (:func:`_repos_from_routing`).
+    ``artifacts`` is deliberately NOT produced.
+    """
+    mapping: dict[str, Any] = dict(section_bodies(scr_body))
+    mapping["title"] = subject.strip() if subject else _subject_from_body(scr_body)
+    if openspec is not None:
+        outcome = openspec.get("outcome")
+        mapping["outcome"] = outcome if outcome is not None else ""
+    mapping["affected_repos"] = _repos_from_routing(mapping.get("routing", "") or "")
+    return mapping
+
 
 #: Per-finding score deductions, by level.
 _DEDUCTION = {"error": 25, "warn": 10}
@@ -302,6 +364,7 @@ __all__ = [
     "LintFinding",
     "LintResult",
     "lint_proposal",
+    "proposal_from_scr",
     "record_critic_cost",
     "scan_secrets",
     "score_tier",

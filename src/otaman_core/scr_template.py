@@ -138,7 +138,7 @@ def render(
     return "\n".join(parts).rstrip() + "\n"
 
 
-def _section_bodies(body: str) -> dict[str, str]:
+def section_bodies(body: str) -> dict[str, str]:
     """`{section key: its text}` for the sections this body actually carries."""
     found: dict[str, str] = {}
     headings = {s.heading.lower(): s.key for s in SECTIONS}
@@ -169,7 +169,7 @@ def has_template(body: str) -> bool:
     Format is detected first, and a legacy body is reported as legacy rather
     than as empty.
     """
-    return bool(_section_bodies(body))
+    return bool(section_bodies(body))
 
 
 def unfilled_sections(body: str) -> list[str]:
@@ -179,7 +179,7 @@ def unfilled_sections(body: str) -> list[str]:
     the author made a reviewable claim that it does not apply, which is exactly
     what the standard asks for instead of silence.
     """
-    bodies = _section_bodies(body)
+    bodies = section_bodies(body)
     out: list[str] = []
     for section in SECTIONS:
         text = bodies.get(section.key)
@@ -316,6 +316,7 @@ __all__ = [
     "SECTION_KEYS",
     "Section",
     "completeness",
+    "section_bodies",
     "completeness_line",
     "declared_evidence_level",
     "has_template",

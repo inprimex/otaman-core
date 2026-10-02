@@ -21,11 +21,19 @@ REPOS = ["otaman-core", "otaman-cli", "otaman-plugin"]
 
 
 def _clean_proposal(**over):
+    # The lintable shape (ruling A): title/outcome/affected_repos + the seven
+    # decision-grade SCR sections (presence + non-placeholder). No artifacts.
     p = {
         "title": "Add a widget",
         "outcome": "JTBD-57",
         "affected_repos": ["otaman-core"],
-        "artifacts": ["proposal.md", "spec.md"],
+        "problem": "The widget is missing and users hit the gap daily.",
+        "evidence": "Three reports this week; reproduced on main.",
+        "impact": "Blocks the common path; medium severity.",
+        "direction": "Add the widget behind the existing seam.",
+        "scope": "n/a because this is a single-module change.",
+        "routing": "otaman-core",
+        "workaround": "None; users wait.",
         "body": "A clean proposal body with no secrets and no placeholders.",
     }
     p.update(over)
@@ -71,7 +79,10 @@ class TestFrontMatterSchema:
         codes = {f.code for f in r.findings}
         assert codes == {"missing-field"}
         missing = {f.field for f in r.findings}
-        assert "outcome" in missing and "affected_repos" in missing and "artifacts" in missing
+        # the decision-grade sections + outcome/affected_repos are required; NOT artifacts
+        assert "outcome" in missing and "affected_repos" in missing
+        assert "problem" in missing and "evidence" in missing  # sections
+        assert "artifacts" not in missing
 
     def test_empty_field_is_missing(self):
         r = lint_proposal(_clean_proposal(outcome="   "), platform_repos=REPOS)
@@ -79,6 +90,8 @@ class TestFrontMatterSchema:
 
     def test_required_fields_default(self):
         assert "outcome" in DEFAULT_REQUIRED_FIELDS
+        assert "problem" in DEFAULT_REQUIRED_FIELDS  # a decision-grade section
+        assert "artifacts" not in DEFAULT_REQUIRED_FIELDS  # dropped (ruling A)
 
 
 class TestCitations:
@@ -141,9 +154,10 @@ class TestPlaceholders:
         r = lint_proposal(_clean_proposal(title="Add widget TODO"), platform_repos=REPOS)
         assert any(f.code == "placeholder-in-field" and f.field == "title" for f in r.findings)
 
-    def test_tbd_in_artifacts(self):
-        r = lint_proposal(_clean_proposal(artifacts=["proposal.md", "TBD"]), platform_repos=REPOS)
-        assert any(f.code == "placeholder-in-field" and f.field == "artifacts" for f in r.findings)
+    def test_tbd_in_a_section(self):
+        # a decision-grade section is a critical field — a placeholder in it is flagged
+        r = lint_proposal(_clean_proposal(evidence="TBD"), platform_repos=REPOS)
+        assert any(f.code == "placeholder-in-field" and f.field == "evidence" for f in r.findings)
 
     def test_critical_fields_list(self):
         assert "outcome" in CRITICAL_FIELDS
@@ -254,3 +268,60 @@ class TestCriticCost:
             "output_tokens": 0,
             "usd": 0.0,
         }
+
+
+# --- proposal_from_scr: the single-home extractor (ruling A 20261001T205124) ---
+
+from otaman_core.spec_gate import proposal_from_scr  # noqa: E402
+
+_SCR_BODY = """## Subject: Harden the dispatch gate
+
+### Problem as observed
+The gate fails open on an unparseable file.
+
+### Evidence
+Reproduced; five assignments dispatched.
+
+### Impact
+High — unapproved work ships.
+
+### Proposed direction
+Fail closed on unparseable.
+
+### Scope boundary
+n/a because single function.
+
+### Routing
+otaman-cli, otaman-core; otaman-specs. Roman-direct session
+
+### Workaround in use
+None.
+"""
+
+
+class TestProposalFromScr:
+    def test_title_from_subject(self):
+        m = proposal_from_scr(_SCR_BODY)
+        assert m["title"] == "Harden the dispatch gate"
+
+    def test_explicit_subject_overrides(self):
+        assert proposal_from_scr(_SCR_BODY, subject="Override")["title"] == "Override"
+
+    def test_outcome_from_openspec(self):
+        m = proposal_from_scr(_SCR_BODY, {"outcome": "JTBD-90"})
+        assert m["outcome"] == "JTBD-90"
+
+    def test_affected_repos_from_routing(self):
+        m = proposal_from_scr(_SCR_BODY)
+        # repo list leads the Routing section; the "Roman-direct session" prose is dropped
+        assert m["affected_repos"] == ["otaman-cli", "otaman-core", "otaman-specs"]
+
+    def test_sections_passthrough(self):
+        m = proposal_from_scr(_SCR_BODY)
+        assert m["problem"].startswith("The gate fails open")
+        assert "evidence" in m and "direction" in m
+
+    def test_extracted_scr_lints_without_missing_fields(self):
+        m = proposal_from_scr(_SCR_BODY, {"outcome": "JTBD-57"})
+        r = lint_proposal(m, platform_repos=["otaman-cli", "otaman-core", "otaman-specs"])
+        assert not any(f.code == "missing-field" for f in r.findings)
