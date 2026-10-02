@@ -325,3 +325,37 @@ class TestProposalFromScr:
         m = proposal_from_scr(_SCR_BODY, {"outcome": "JTBD-57"})
         r = lint_proposal(m, platform_repos=["otaman-cli", "otaman-core", "otaman-specs"])
         assert not any(f.code == "missing-field" for f in r.findings)
+
+
+class TestExtractorCorpusFixes:
+    """cli #253 corpus mismatches — body scan, outcome-id, id shape, routing parse."""
+
+    def test_body_is_set_so_secret_scan_runs(self):
+        body = "## Subject: x\n\n### Evidence\nleaked ghp_" + "a" * 36 + "\n"
+        m = proposal_from_scr(body)
+        assert m["body"] == body
+        r = lint_proposal(m, platform_repos=[])
+        assert any(f.code == "secret-in-body" for f in r.findings)
+
+    def test_outcome_id_preferred_over_prose(self):
+        m = proposal_from_scr(
+            "## Subject: x\n",
+            {"outcome-id": "JTBD-118-interactive-spec-editing", "outcome": "some prose"},
+        )
+        assert m["outcome"] == "JTBD-118-interactive-spec-editing"
+
+    def test_outcome_falls_back_when_no_id(self):
+        m = proposal_from_scr("## Subject: x\n", {"outcome": "JTBD-57"})
+        assert m["outcome"] == "JTBD-57"
+
+    def test_id_with_slug_is_not_malformed(self):
+        r = lint_proposal(
+            _clean_proposal(outcome="JTBD-118-interactive-spec-editing"), platform_repos=REPOS
+        )
+        assert not any(f.code == "malformed-outcome" for f in r.findings)
+
+    def test_routing_parenthetical_prose_is_not_a_repo(self):
+        routing = "otaman-specs (canon delta); otaman-cli (implementation — cli-agent)"
+        body = f"## Subject: x\n\n### Routing\n{routing}\n"
+        m = proposal_from_scr(body)
+        assert m["affected_repos"] == ["otaman-specs", "otaman-cli"]  # cli-agent dropped
