@@ -304,6 +304,51 @@ properties:
     enum: [healthcare, fintech, marketplace, ml-ai, saas, ecommerce, iot, general]
     description: "Project domain — loads domain-specific agent templates, path rules, and estimation adjustments"
 
+  # ---------------------------------------------------------------------------
+  # spec_policy (spec-lifecycle-enforcement) — the program's spec-lifecycle policy.
+  # Canon, core-read via otaman_core.spec_lifecycle.resolve_spec_policy; it was
+  # missing here, so a program carrying it failed `otaman validate` / `otaman init`
+  # (cli, 2026-10-02). resolve_spec_policy is the authority on the accepted shape.
+  spec_policy:
+    type: object
+    additionalProperties: false
+    description: "Program spec-lifecycle policy (spec-lifecycle-enforcement). See otaman_core.spec_lifecycle."
+    properties:
+      enforcement:
+        description: "A single mode, or a per-action map of them (resolve_spec_policy reads a single mode today)."
+        oneOf:
+          - type: string
+            enum: [block, warn, self-waive]
+          - type: object
+            additionalProperties:
+              type: string
+              enum: [block, warn, self-waive]
+      process:
+        type: object
+        additionalProperties: false
+        properties:
+          level:
+            type: string
+            enum: [spec-first, solutions, outcomes, verified]
+        description: "Process level (D7); higher levels only ADD requirements."
+      delivery_default:
+        type: string
+        enum: [hitl, auto]
+      mandatory_proposal:
+        type: boolean
+      approvers:
+        type: array
+        items:
+          type: string
+      ratifiers:
+        type: array
+        items:
+          type: string
+      unapproved_stages:
+        type: array
+        items:
+          type: string
+
   lifecycle:
     type: object
     additionalProperties: false

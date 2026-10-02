@@ -143,3 +143,12 @@ router:
   backend: litellm-proxy
   base_url: "http://localhost:4000"
   local_only_classes: [cofounder-only]
+
+# spec-lifecycle-enforcement: the program's spec-lifecycle policy.
+spec_policy:
+  enforcement: block
+  process:
+    level: outcomes
+  delivery_default: hitl
+  mandatory_proposal: true
+  approvers: [cto]
