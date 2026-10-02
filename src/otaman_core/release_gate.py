@@ -24,6 +24,7 @@ combination. Pure: bus reads via the reader, no clock, no cut side effects.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,24 +68,35 @@ def cut_eligibility(
     tasks_path: Path,
     *,
     gate_passed: bool,
+    filed: dict[str, datetime | None] | None = None,
 ) -> CutVerdict:
     """The cut-eligibility :class:`CutVerdict` for *change*.
 
     *task_ids* are the change's implementation task ids (from its tasks.md — the caller
     supplies the list; this module decides which are *done* from the bus, not the file).
     A task counts complete via :func:`~otaman_core.task_complete.is_effectively_complete`
-    — a bus filing not older than the task's most recent un-tick — so a swept bus or a
-    lagging tasks.md tick does not change the verdict, and a retracted filing re-opens
-    the task.
+    with ``honor_all=False`` — a bus filing of THAT task's id, not older than its most
+    recent un-tick. The ``--all`` sentinel does NOT count for a cut: a blanket claim
+    from one agent must not close another agent's unfinished task (cli rcg-1.3). So a
+    swept bus or a lagging tasks.md tick does not change the verdict, a retracted filing
+    re-opens the task, and a cut demands a per-task filing.
+
+    *filed* lets a fleet-wide caller pass a pre-read filings map (one
+    :func:`~otaman_core.task_complete.filed_complete_by_change` pass for the whole bus)
+    instead of this paying one :func:`~otaman_core.task_complete.filed_complete_at` scan
+    per change (cli's seam ask). Omit it for the single-change path.
 
     Task side first: any task not filed complete -> :data:`TASKS_OUTSTANDING` (naming
     them). Only once the task side is clean does *gate_passed* decide
     :data:`ELIGIBLE` vs :data:`GATE_UNPASSED` — so the cut reports the nearest real
     blocker, not a gate failure that an outstanding task masks.
     """
-    filed = filed_complete_at(project_root, change, config)
+    if filed is None:
+        filed = filed_complete_at(project_root, change, config)
     ids = list(task_ids)
-    outstanding = tuple(t for t in ids if not is_effectively_complete(t, filed, tasks_path))
+    outstanding = tuple(
+        t for t in ids if not is_effectively_complete(t, filed, tasks_path, honor_all=False)
+    )
     complete = len(ids) - len(outstanding)
     if outstanding:
         status = TASKS_OUTSTANDING

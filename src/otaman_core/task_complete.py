@@ -35,15 +35,15 @@ from typing import Any
 
 from otaman_core.frontmatter import parse_bus_timestamp
 
-# The trailing ``(?:-[a-z0-9]+)?`` captures a hyphen suffix like ``1.7-bis`` as
-# part of the id. Without it the match stopped at the word boundary before the
-# hyphen, so ``1.7`` and ``1.7-bis`` — two distinct task lines that co-exist in the
-# live corpus (architecture-dependency-graph/tasks.md) — collapsed to the same id,
-# and a filing for one would tick both (cli #212 collision report). Keeping the
-# suffix is safe under either ruling on whether ``-bis`` is a legitimate id form:
-# if it is, the two lines tick independently; if spec-agent later rewrites it, this
-# reader still never silently closes a task nobody did.
-_TASK_ID_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+)*(?:-[a-z0-9]+)?)\b")
+# A task id: a major segment, any number of minor segments, an optional hyphen
+# suffix. EACH segment may carry a trailing letter — the corpus writes the letter on
+# the MINOR segment (``1.1b``, ``2.4a``), not only the first (``1B.3``). An earlier
+# form allowed the letter only after the first segment, so ``2.4a`` matched ``2`` and
+# ``2.3a``/``2.4a``/``2.4b`` all collapsed to ``2`` — the very collision the ``-bis``
+# suffix was added to prevent (cli #212), and a silent mismatch with
+# ``_parse_completed_spec`` (which keeps ``2.4a``), leaving those tasks permanently
+# not-complete (cli rcg-1.3). ``(?:-[a-z0-9]+)?`` still captures ``1.7-bis``.
+_TASK_ID_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+[A-Za-z]?)*(?:-[a-z0-9]+)?)\b")
 _COMPLETED_RE = re.compile(r"^\*\*Completed\*\*:\s*(.+)$", re.MULTILINE)
 _RANGE_RE = re.compile(r"^(\d+)\.(\d+)\s*-\s*(\d+)\.(\d+)$")
 _TIMESTAMP_RE = re.compile(r"^timestamp:\s*(\S+)", re.MULTILINE)
@@ -245,17 +245,29 @@ def last_untick_at(tasks_path: Path, task_id: str) -> datetime | None:
 
 
 def is_effectively_complete(
-    task_id: str, filed: dict[str, datetime | None], tasks_path: Path
+    task_id: str,
+    filed: dict[str, datetime | None],
+    tasks_path: Path,
+    *,
+    honor_all: bool = True,
 ) -> bool:
     """Whether *task_id* counts as complete for dispatch/tick, honoring retraction.
 
     *filed* is a :func:`filed_complete_at` result. A task is filed if its id is in
-    *filed* or an --all filing exists (:data:`COMPLETED_ALL`). A filing older than
-    the task's most recent un-tick (:func:`last_untick_at`) is stale — the task is
-    NOT effectively complete and goes back out — so an over-claimed task can
-    re-dispatch instead of the consult citing a withdrawn filing forever.
+    *filed* or — when *honor_all* — an --all filing exists (:data:`COMPLETED_ALL`). A
+    filing older than the task's most recent un-tick (:func:`last_untick_at`) is stale
+    — the task is NOT effectively complete and goes back out — so an over-claimed task
+    can re-dispatch instead of the consult citing a withdrawn filing forever.
+
+    ``honor_all=False`` demands a PER-TASK filing: the ``--all`` sentinel does not
+    count. Dispatch honors ``--all`` (one broadcast closes a change, the default); a
+    RELEASE CUT does not — a blanket ``--all`` from one agent would close another
+    agent's unfinished task, and ``last_untick_at`` cannot catch a task that was never
+    ticked (cli rcg-1.3). So :func:`~otaman_core.release_gate.cut_eligibility` passes
+    ``honor_all=False`` — a cut ships only tasks individually filed complete.
     """
-    key = task_id if task_id in filed else (COMPLETED_ALL if COMPLETED_ALL in filed else None)
+    direct = task_id in filed
+    key = task_id if direct else (COMPLETED_ALL if (honor_all and COMPLETED_ALL in filed) else None)
     if key is None:
         return False
     filed_at = filed.get(key)
