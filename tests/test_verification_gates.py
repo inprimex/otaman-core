@@ -31,9 +31,10 @@ _CONFIG_DATA = {
         "proposal": {
             "primary": "stakeholder-affected",
             "fallback": "role-based",
+            "target-role": "reviewer",  # csp 1.6: role-based hook needs a target-role
             "sensitivity-overrides": {"cofounder-only": "sensitivity-scoped"},
         },
-        "release": {"primary": "role-based"},
+        "release": {"primary": "role-based", "target-role": "reviewer"},
     },
 }
 
@@ -213,10 +214,63 @@ def test_parse_accepts_role_based_pairing_with_roles():
     cfg = parse_verification_gates(
         {
             "roles": {"reviewer-agent": ["reviewer"]},
-            "hooks": {"h": {"primary": "stakeholder-affected", "fallback": "role-based"}},
+            "hooks": {
+                "h": {
+                    "primary": "stakeholder-affected",
+                    "fallback": "role-based",
+                    "target-role": "reviewer",
+                }
+            },
         }
     )
     assert cfg.hooks["h"].fallback == "role-based"
+    assert cfg.hooks["h"].target_role == "reviewer"
+
+
+# --- csp 1.6: per-hook target-role in config ---------------------------------
+
+
+def test_parse_refuses_role_based_hook_without_a_target_role():
+    with pytest.raises(VerificationGatesError, match="needs a target-role"):
+        parse_verification_gates(
+            {"roles": {"a": ["reviewer"]}, "hooks": {"h": {"primary": "role-based"}}}
+        )
+
+
+def test_role_based_resolves_target_role_from_config_for_a_checkout():
+    # the 1.6 point: a bare checkout supplies NO ctx.target_role; the hook's configured
+    # target-role resolves role-based, so it evaluates instead of could-not-evaluate.
+    cfg = parse_verification_gates(
+        {
+            "roles": {"reviewer-agent": ["reviewer"]},
+            "hooks": {"release": {"primary": "role-based", "target-role": "reviewer"}},
+        }
+    )
+    r = select_critics(cfg, "release", SelectionContext())  # no ctx.target_role at all
+    assert r.policy == "role-based"
+    assert r.critics == ("reviewer-agent",)
+    assert r.could_not_evaluate == ()
+
+
+def test_caller_target_role_overrides_the_configured_default():
+    cfg = parse_verification_gates(
+        {
+            "roles": {"reviewer-agent": ["reviewer"], "auditor-agent": ["auditor"]},
+            "hooks": {"release": {"primary": "role-based", "target-role": "reviewer"}},
+        }
+    )
+    r = select_critics(cfg, "release", SelectionContext(target_role="auditor"))
+    assert r.critics == ("auditor-agent",)  # caller wins over the hook default
+
+
+def test_parse_refuses_malformed_target_role():
+    with pytest.raises(VerificationGatesError, match="target-role"):
+        parse_verification_gates(
+            {
+                "roles": {"a": ["reviewer"]},
+                "hooks": {"h": {"primary": "role-based", "target-role": ""}},
+            }
+        )
 
 
 def test_parse_refuses_unknown_top_level_key():

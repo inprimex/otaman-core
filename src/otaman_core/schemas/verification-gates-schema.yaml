@@ -39,6 +39,13 @@ properties:
           $ref: "#/definitions/policy"
         fallback:
           $ref: "#/definitions/policy"
+        target-role:
+          type: string
+          minLength: 1
+          description: >-
+            The default role role-based selects by (csp 1.6), declared per hook so it is
+            visible to the parse and resolvable from a checkout. Required (enforced
+            semantically) for any hook naming role-based as primary or fallback.
         sensitivity-overrides:
           type: object
           description: "sensitivity class -> the policy that replaces primary for that class."
