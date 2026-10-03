@@ -16,6 +16,17 @@ properties:
       items:
         type: string
 
+  roles:
+    type: object
+    description: >-
+      Roles table (csp 1.4): agent name -> the roles it holds. Makes role-based
+      resolvable from configuration alone — the load-bearing fallback for a self-owned
+      single-repo proposal, where the excluded proposer empties stakeholder-affected.
+    additionalProperties:
+      type: array
+      items:
+        type: string
+
   hooks:
     type: object
     description: "Per-hook critic-selection policy, keyed by hook name."
