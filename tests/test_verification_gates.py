@@ -26,6 +26,7 @@ from otaman_core.verification_gates import (
 
 _CONFIG_DATA = {
     "clearances": {"cofounder-agent": ["cofounder-only"], "cto-agent": ["cofounder-only"]},
+    "roles": {"reviewer-agent": ["reviewer"]},  # csp 1.4: role-based resolvable from config
     "hooks": {
         "proposal": {
             "primary": "stakeholder-affected",
@@ -124,6 +125,110 @@ def test_fallback_runs_when_primary_empty():
     assert r.fell_back is True
     assert r.policy == "role-based"
     assert r.critics == ("r",)
+
+
+# --- csp 1.4: roles table, could-not-evaluate, parse-time refusal ------------
+
+
+def test_roles_table_is_parsed_and_exposed():
+    cfg = _cfg()
+    assert cfg.roles == {"reviewer-agent": ("reviewer",)}
+
+
+def test_role_based_resolves_from_config_roles_alone():
+    # no ctx.agent_roles: role-based reads the config roles table (the 1.4 point)
+    cfg = _cfg()
+    r = select_critics(cfg, "release", SelectionContext(target_role="reviewer"))
+    assert r.policy == "role-based"
+    assert r.critics == ("reviewer-agent",)
+    assert r.could_not_evaluate == ()
+
+
+def test_could_not_evaluate_names_missing_inputs_distinct_from_no_eligible():
+    from otaman_core.verification_gates import HookPolicy, VerificationGatesConfig
+
+    # role-based primary, roles declared so parse passes, but the CALL supplies no
+    # target_role and no roles override -> cannot evaluate, names the missing input.
+    cfg = VerificationGatesConfig(
+        roles={"reviewer-agent": ("reviewer",)},
+        hooks={"h": HookPolicy(hook="h", primary="role-based")},
+    )
+    r = select_critics(cfg, "h", SelectionContext())  # no target_role
+    assert r.critics == ()
+    assert r.could_not_evaluate == ("target_role",)  # could-not-know, names the input
+
+    # contrast: a no-eligible-critic — evaluated fine (roles + target_role present) but
+    # nobody holds the role. Empty critics, but could_not_evaluate is EMPTY.
+    r2 = select_critics(cfg, "h", SelectionContext(target_role="nonesuch"))
+    assert r2.critics == () and r2.could_not_evaluate == ()
+
+
+def test_could_not_evaluate_names_both_when_roles_and_role_absent():
+    from otaman_core.verification_gates import HookPolicy, VerificationGatesConfig
+
+    # built directly (no roles table) so the parse-time guard is bypassed; the engine
+    # still reports both missing inputs when role-based runs with neither.
+    cfg = VerificationGatesConfig(hooks={"h": HookPolicy(hook="h", primary="role-based")})
+    r = select_critics(cfg, "h", SelectionContext())
+    assert r.could_not_evaluate == ("roles", "target_role")
+
+
+def test_exclusion_emptied_is_no_eligible_not_could_not_evaluate():
+    # role-based evaluated fine and found the proposer; exclusion empties it -> that is a
+    # no-eligible-critic, NOT a could-not-evaluate (it knew, the only critic was excluded).
+    from otaman_core.verification_gates import HookPolicy, VerificationGatesConfig
+
+    cfg = VerificationGatesConfig(
+        roles={"core-agent": ("reviewer",)},
+        hooks={"h": HookPolicy(hook="h", primary="role-based")},
+    )
+    r = select_critics(cfg, "h", SelectionContext(target_role="reviewer", proposer="core-agent"))
+    assert r.critics == () and r.excluded_proposer is True
+    assert r.could_not_evaluate == ()
+
+
+def test_parse_refuses_pairing_that_cannot_select_self_owned():
+    # stakeholder-affected with no fallback: the self-owned single-repo shape empties
+    # under exclusion and nothing restores it -> refused at parse, naming the pairing.
+    with pytest.raises(VerificationGatesError, match="single-repo proposal by its own owner"):
+        parse_verification_gates(
+            {"roles": {"r": ["reviewer"]}, "hooks": {"h": {"primary": "stakeholder-affected"}}}
+        )
+    # a consumer-chain fallback does not save it (consumers are runtime, not config)
+    with pytest.raises(VerificationGatesError, match="single-repo proposal by its own owner"):
+        parse_verification_gates(
+            {
+                "roles": {"r": ["reviewer"]},
+                "hooks": {"h": {"primary": "stakeholder-affected", "fallback": "consumer-chain"}},
+            }
+        )
+
+
+def test_parse_refuses_role_based_without_a_roles_table():
+    with pytest.raises(VerificationGatesError, match="needs a roles table"):
+        parse_verification_gates({"hooks": {"h": {"primary": "role-based"}}})
+
+
+def test_parse_accepts_role_based_pairing_with_roles():
+    cfg = parse_verification_gates(
+        {
+            "roles": {"reviewer-agent": ["reviewer"]},
+            "hooks": {"h": {"primary": "stakeholder-affected", "fallback": "role-based"}},
+        }
+    )
+    assert cfg.hooks["h"].fallback == "role-based"
+
+
+def test_parse_refuses_unknown_top_level_key():
+    # cli's free finding: an unknown TOP-LEVEL key was silently dropped, so a tenant's
+    # roles table (pre-1.4 guess) vanished with no error. Now refused, like a hook stray.
+    with pytest.raises(VerificationGatesError, match="unknown top-level key"):
+        parse_verification_gates({"rolez": {"a": ["reviewer"]}})
+
+
+def test_parse_refuses_malformed_roles_table():
+    with pytest.raises(VerificationGatesError, match="roles"):
+        parse_verification_gates({"roles": {"a": "reviewer"}})  # value must be a list
 
 
 # --- sensitivity override + clearance gate ----------------------------------
