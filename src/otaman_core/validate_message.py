@@ -173,6 +173,48 @@ PRIVILEGED_TYPES = frozenset(
     }
 )
 
+# Machine-emitted types: valid, but written by a verb or a daemon that owns the payload,
+# never typed by hand. The single home for the hand-sendable/machine distinction (ruled
+# 2026-10-03, spec-agent, from cli's drift incident 20261003T082359): cli's `otaman send`
+# allow-list was a second copy of this fact, and it fell behind — `decision-required` went
+# missing while every agent's rules make emitting it a DUTY before blocking, so the emit
+# exited 2 and an agent could not announce a halt (the silent-halt class the duty exists to
+# prevent). cli now imports :data:`HAND_SENDABLE_TYPES` and deletes its copy.
+#
+# Declared as the EXPLICIT set (not its complement) and hand-sendable is DERIVED, so the
+# fail direction is safe: a new type left unclassified defaults to hand-sendable (an agent
+# can send it) rather than silently unsendable — the two failure modes are asymmetric, and
+# a forgotten hand-sendable type is an invisible halt while a forgotten machine type is at
+# most one odd hand-written message machinery ignores (visible noise). When a change moves
+# a type across this line, it rides the change that alters the emitting machinery.
+MACHINE_EMITTED_TYPES: frozenset[str] = frozenset(
+    {
+        # the outcome engine's lifecycle — `otaman accept-cost`/`reject-cost`/estimate flow
+        "outcome-estimate-requested",
+        "outcome-estimates-ready",
+        "outcome-cost-accepted",
+        "outcome-cost-rejected",
+        "outcome-status-changed",
+        "solution-status-changed",
+        "solution-recommendation",
+        # the agent registry, on a registration change
+        "agent-registry-change",
+        # the security gate and fswatch's post-commit hook
+        "security-gate-report",
+        "post-commit-review",
+        # the spec lifecycle's own notices, emitted by the stage machine
+        "spec-approval-pending",
+        "request-human-review",
+    }
+)
+
+#: Types a person or agent hand-sends via ``otaman send`` — DERIVED as the complement, so
+#: a newly added type is hand-sendable unless explicitly classified as machinery (the
+#: fail-safe direction). ``cli`` imports this directly instead of mirroring it.
+HAND_SENDABLE_TYPES: frozenset[str] = (
+    frozenset(VALID_TYPES) - PRIVILEGED_TYPES - MACHINE_EMITTED_TYPES
+)
+
 _HUMAN_SENDER = "human"
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}

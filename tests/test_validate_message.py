@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 
 from otaman_core.validate_message import (
+    HAND_SENDABLE_TYPES,
+    MACHINE_EMITTED_TYPES,
     PRIVILEGED_TYPES,
+    VALID_TYPES,
     validate_message,
     validate_message_before_write,
     validate_message_content,
@@ -730,3 +733,43 @@ class TestTimestampValue:
 
     def test_fractional_second_timestamp_accepted(self, tmp_path):
         assert _errors(tmp_path, _valid_fm(timestamp="2026-10-01T14:21:30.238843+00:00")) == []
+
+
+class TestHandSendableClassification:
+    """HAND_SENDABLE / MACHINE_EMITTED single-home (spec-agent ruling 2026-10-03).
+
+    cli's `otaman send` allow-list was a drifting second copy; `decision-required` fell out
+    and the never-block duty became unperformable. Core now owns the classification; these
+    pin the partition so a new type can't silently fall into a gap.
+    """
+
+    def test_partition_is_exhaustive_and_disjoint(self):
+        # every valid type is exactly one of: privileged, machine-emitted, hand-sendable
+        assert PRIVILEGED_TYPES | MACHINE_EMITTED_TYPES | HAND_SENDABLE_TYPES == frozenset(
+            VALID_TYPES
+        )
+        assert PRIVILEGED_TYPES.isdisjoint(MACHINE_EMITTED_TYPES)
+        assert PRIVILEGED_TYPES.isdisjoint(HAND_SENDABLE_TYPES)
+        assert MACHINE_EMITTED_TYPES.isdisjoint(HAND_SENDABLE_TYPES)
+
+    def test_machine_emitted_are_all_valid_and_unprivileged(self):
+        assert MACHINE_EMITTED_TYPES <= frozenset(VALID_TYPES)
+        assert MACHINE_EMITTED_TYPES.isdisjoint(PRIVILEGED_TYPES)
+
+    def test_decision_required_is_hand_sendable(self):
+        # the incident: it was valid in core but missing from the send list, so the
+        # never-block duty could not be performed. It MUST be hand-sendable.
+        assert "decision-required" in HAND_SENDABLE_TYPES
+
+    def test_hand_sendable_holds_the_core_conversational_types(self):
+        for t in ("info", "question", "task-assignment", "task-complete", "proposal"):
+            assert t in HAND_SENDABLE_TYPES
+
+    def test_machine_lifecycle_types_are_not_hand_sendable(self):
+        for t in ("outcome-status-changed", "solution-status-changed", "post-commit-review"):
+            assert t in MACHINE_EMITTED_TYPES
+            assert t not in HAND_SENDABLE_TYPES
+
+    def test_privileged_types_are_not_hand_sendable(self):
+        # a human-decision/approval is never hand-sent via `otaman send` (F012)
+        assert PRIVILEGED_TYPES.isdisjoint(HAND_SENDABLE_TYPES)
