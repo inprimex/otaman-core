@@ -316,6 +316,14 @@ class CriticCost:
 
     Values-free: identifiers + numbers only (change, critic agent, which pass,
     token counts, USD, ISO timestamp). ``at`` is caller-supplied for determinism.
+
+    ``route`` is the resolved route id this invocation ran on — the provenance core
+    already owns via :func:`otaman_core.llm_router.effective_route` (llm-router-backend
+    1.4: "telemetry carries the route"). It defaults to ``None``, which means "no router
+    configured / the backend default" — a state the gate (2.1 "telemetry distinguishes
+    routes") must keep distinguishable from a record that was explicitly routed, so None
+    is a real value here, not merely an absent one. Default None keeps every existing
+    record and caller valid (no migration).
     """
 
     change: str
@@ -325,6 +333,7 @@ class CriticCost:
     output_tokens: int
     usd: float
     at: str
+    route: str | None = None
 
 
 def record_critic_cost(
@@ -336,12 +345,18 @@ def record_critic_cost(
     output_tokens: int,
     usd: float,
     at: str,
+    route: str | None = None,
 ) -> CriticCost:
     """Build a :class:`CriticCost` for one critic invocation (1.4).
 
     Validates non-negative counts and a sane ``pass_index`` (1 or 2 — the D2 cap);
     raises :class:`ValueError` otherwise. The record is what the caller emits to
     the usage sink — this module owns the shape, not the transport.
+
+    ``route`` is the resolved route id the invocation ran on (from
+    :func:`otaman_core.llm_router.effective_route`), or ``None`` for the backend default
+    when no router is configured. Caller-supplied: the value's provenance is core's, but
+    the call site knows which agent/invocation this record is for.
     """
     if pass_index < 1 or pass_index > 2:
         raise ValueError(f"pass_index must be 1 or 2 (D2 cap), got {pass_index}")
@@ -355,6 +370,7 @@ def record_critic_cost(
         output_tokens=output_tokens,
         usd=usd,
         at=at,
+        route=route,
     )
 
 
