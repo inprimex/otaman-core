@@ -269,6 +269,45 @@ class TestCriticCost:
             "usd": 0.0,
         }
 
+    def test_route_defaults_to_none(self):
+        # every existing caller stays valid — route is additive (llm-router 1.4)
+        c = record_critic_cost(
+            "c", critic="x", pass_index=1, input_tokens=1, output_tokens=1, usd=0.0, at="t"
+        )
+        assert c.route is None
+
+    def test_route_is_carried_when_given(self):
+        c = record_critic_cost(
+            "c",
+            critic="x",
+            pass_index=1,
+            input_tokens=1,
+            output_tokens=1,
+            usd=0.0,
+            at="t",
+            route="opus-via-litellm",
+        )
+        assert c.route == "opus-via-litellm"
+
+    def test_none_route_is_distinguishable_from_a_routed_record(self):
+        # the 2.1 gate ("telemetry distinguishes routes") needs "no router configured"
+        # (None) to be a different value from any explicit route id, not collapsed.
+        default = record_critic_cost(
+            "c", critic="x", pass_index=1, input_tokens=1, output_tokens=1, usd=0.0, at="t"
+        )
+        routed = record_critic_cost(
+            "c",
+            critic="x",
+            pass_index=1,
+            input_tokens=1,
+            output_tokens=1,
+            usd=0.0,
+            at="t",
+            route="default",  # an EXPLICIT route literally named "default"
+        )
+        assert default.route is None and routed.route == "default"
+        assert default.route != routed.route
+
 
 # --- proposal_from_scr: the single-home extractor (ruling A 20261001T205124) ---
 
