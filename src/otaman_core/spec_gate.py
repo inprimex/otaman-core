@@ -317,9 +317,10 @@ class CriticCost:
     Values-free: identifiers + numbers only (change, critic agent, which pass,
     token counts, USD, ISO timestamp). ``at`` is caller-supplied for determinism.
 
-    ``route`` is the resolved route id this invocation ran on — the provenance core
-    already owns via :func:`otaman_core.llm_router.effective_route` (llm-router-backend
-    1.4: "telemetry carries the route"). It defaults to ``None``, which means "no router
+    ``route`` is the resolved route id this invocation ran on — the canonical
+    presentation-free key :attr:`otaman_core.llm_router.Route.id` (pass
+    ``effective_route(...).id``), the provenance core owns (llm-router-backend 1.4:
+    "telemetry carries the route"). It defaults to ``None``, which means "no router
     configured / the backend default" — a state the gate (2.1 "telemetry distinguishes
     routes") must keep distinguishable from a record that was explicitly routed, so None
     is a real value here, not merely an absent one. Default None keeps every existing

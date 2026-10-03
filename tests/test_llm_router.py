@@ -122,6 +122,32 @@ def test_effective_route_rejects_bad_shape():
         effective_route({"agents": [{"name": "a", "route": {"model": "x"}}]}, "a")  # no family
 
 
+# --- Route.id: the canonical telemetry key (plugin lrb-1.6 question) ----------
+
+
+def test_route_id_renders_every_shape():
+    assert Route(family="anthropic", model="claude-opus-4").id == "anthropic/claude-opus-4"
+    assert Route(family="openai").id == "openai"  # family-only
+    assert Route(family="ollama", model="llama3", local=True).id == "ollama/llama3@local"
+    assert Route(family="ollama", local=True).id == "ollama@local"  # family-only, local
+
+
+def test_route_id_keeps_local_distinct_from_offtenant():
+    # the correctness point: the SAME family/model run local vs off-tenant are different
+    # routes for cost/sensitivity, so they must not collapse to one telemetry key
+    # (a flat family/model rendering — like the call-site helper — would lose this).
+    off = Route(family="ollama", model="llama3", local=False)
+    local = Route(family="ollama", model="llama3", local=True)
+    assert off.id != local.id
+    assert off.id == "ollama/llama3" and local.id == "ollama/llama3@local"
+
+
+def test_route_id_is_the_effective_route_key():
+    # the whole point: effective_route(...).id is what a caller passes to record_critic_cost
+    cfg = {"agents": [{"name": "a", "route": {"family": "ollama", "local": True}}]}
+    assert effective_route(cfg, "a").id == "ollama@local"
+
+
 # --- sensitivity guard predicate ---------------------------------------------
 
 

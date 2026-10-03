@@ -63,6 +63,32 @@ class Route:
     model: str | None = None
     local: bool = False
 
+    @property
+    def id(self) -> str:
+        """The canonical, presentation-free string form — the telemetry route key.
+
+        Core owns this (plugin's lrb-1.6 call-site question 20261003T012354): the first
+        ``record_critic_cost`` caller needed a string for ``route`` and there was no
+        canonical rendering of a :class:`Route`, so each call site would have invented
+        one and records would compare only within whatever each picked. The id lives here
+        for the same reason :func:`effective_route` does — one home.
+
+        It encodes EVERY identity-bearing field — ``family``, ``model`` AND ``local`` —
+        so two routes have the same id iff they are the same route (the 2.1 gate's
+        "telemetry distinguishes routes"). In particular ``local`` is part of the key:
+        the same family/model run tenant-local vs. off-tenant is a different route for
+        cost and sensitivity, so it must not collapse to one telemetry bucket (a flat
+        ``family/model`` rendering would lose it). Form: ``family`` + ``/model`` when a
+        model is named + ``@local`` when tenant-local — e.g. ``anthropic/claude-opus-4``,
+        ``openai`` (family-only), ``ollama/llama3@local``, ``ollama@local``.
+
+        This is NOT a display string: the cli doctor renders ``id`` plus its own
+        human-facing suffix ("(local)" / "(leaves tenant)"), which may change for
+        presentation reasons without moving the telemetry key.
+        """
+        base = self.family if self.model is None else f"{self.family}/{self.model}"
+        return f"{base}@local" if self.local else base
+
 
 @dataclass(frozen=True)
 class BackendTarget:
