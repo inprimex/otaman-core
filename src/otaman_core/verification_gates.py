@@ -21,12 +21,14 @@ The four policies (proposal §What-changes):
 ``roles`` table); sghc's ``security-gates`` block migrates here (csp 1.2), retiring its
 relocation note.
 
-Coverage is configuration-complete (csp 1.4): the ``roles`` table (agent -> roles) makes
-``role-based`` resolvable from config alone, so it is a usable fallback for the self-owned
-single-repo shape where exclusion empties ``stakeholder-affected``; a hook whose pairing
-cannot select for that shape is refused at parse time; and a policy that cannot evaluate
-for want of a declared input reports ``could_not_evaluate`` (the missing input names),
-distinct from an evaluated-but-empty no-eligible-critic.
+Coverage is configuration-complete (csp 1.4/1.6): the ``roles`` table (agent -> roles) and
+a per-hook ``target_role`` make ``role-based`` resolvable from config alone — both inputs
+the parse can see — so it is a usable fallback for the self-owned single-repo shape where
+exclusion empties ``stakeholder-affected``, and resolvable from a bare checkout (no
+caller). A hook naming ``role-based`` with no roles table or no ``target_role`` is refused
+at parse time, as is a pairing that cannot select for that shape; and a policy that cannot
+evaluate for want of a declared input reports ``could_not_evaluate`` (the missing input
+names), distinct from an evaluated-but-empty no-eligible-critic.
 
 Two invariants the engine enforces, both no-silent-success:
 
@@ -71,12 +73,20 @@ class HookPolicy:
     ``sensitivity_overrides`` maps a sensitivity class to the policy that replaces
     ``primary`` when the content carries that class (e.g. ``cofounder-only`` ->
     ``sensitivity-scoped``).
+
+    ``target_role`` is the per-hook default role ``role-based`` selects by (csp 1.6).
+    It lives in config, not per-dispatcher, so it is the one role-based input the parse
+    CAN see — a role-based hook with no ``target_role`` is refused at parse time, and
+    :func:`select_critics` resolves it from here when the caller supplies none, so a
+    checkout with a complete config resolves role-based instead of returning
+    could-not-evaluate on every call (ruled 2026-10-03; cli 20261003T064521).
     """
 
     hook: str
     primary: str
     fallback: str | None = None
     sensitivity_overrides: Mapping[str, str] = field(default_factory=dict)
+    target_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -210,7 +220,7 @@ def parse_verification_gates(data: Any) -> VerificationGatesConfig:
     for hook, raw in raw_hooks.items():
         if not isinstance(raw, Mapping):
             raise VerificationGatesError(f"hooks.{hook} must be a mapping")
-        stray = set(raw) - {"primary", "fallback", "sensitivity-overrides"}
+        stray = set(raw) - {"primary", "fallback", "sensitivity-overrides", "target-role"}
         if stray:
             raise VerificationGatesError(f"hooks.{hook}: unknown key(s) {sorted(stray)!r}")
         if "primary" not in raw:
@@ -225,8 +235,15 @@ def parse_verification_gates(data: Any) -> VerificationGatesConfig:
             raise VerificationGatesError(f"hooks.{hook}.sensitivity-overrides must be a mapping")
         for sens, pol in raw_over.items():
             overrides[sens] = _check_policy(pol, f"hooks.{hook}.sensitivity-overrides.{sens}")
+        target_role = raw.get("target-role")
+        if target_role is not None and not (isinstance(target_role, str) and target_role.strip()):
+            raise VerificationGatesError(f"hooks.{hook}.target-role must be a non-empty string")
         hooks[hook] = HookPolicy(
-            hook=hook, primary=primary, fallback=fallback, sensitivity_overrides=overrides
+            hook=hook,
+            primary=primary,
+            fallback=fallback,
+            sensitivity_overrides=overrides,
+            target_role=target_role,
         )
 
     # Configuration-completeness (csp 1.4): every hook's primary/fallback pairing must be
@@ -255,12 +272,24 @@ def parse_verification_gates(data: Any) -> VerificationGatesConfig:
                 "declared — add a top-level roles: (agent -> roles) so role-based resolves "
                 "from configuration alone"
             )
+        # target_role is the other role-based input the parse can see (csp 1.6): a hook
+        # naming role-based with no declared target-role would could-not-evaluate on every
+        # call, so refuse it here the same way a missing roles table is refused.
+        if hp.target_role is None:
+            raise VerificationGatesError(
+                f"hooks.{hook}: role-based ({pairing_str}) needs a target-role, but none is "
+                "declared — add target-role: to the hook so role-based resolves from config "
+                "(not per dispatcher)"
+            )
 
     return VerificationGatesConfig(clearances=clearances, hooks=hooks, roles=roles)
 
 
 def _run_policy(
-    policy: str, ctx: SelectionContext, config: VerificationGatesConfig
+    policy: str,
+    ctx: SelectionContext,
+    config: VerificationGatesConfig,
+    target_role: str | None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Run one policy over *ctx*; return ``(critics, missing_inputs)``.
 
@@ -269,6 +298,10 @@ def _run_policy(
     only ``role-based``, whose inputs are the roles table (config ``roles:`` or the
     caller's ``agent_roles``) and a ``target_role``. An evaluated policy that simply
     selects nobody returns ``((), ())`` — a no-eligible-critic, not a could-not-evaluate.
+
+    *target_role* is the already-resolved role (caller's ``ctx.target_role`` or the hook's
+    configured ``target_role`` — csp 1.6), passed in so role-based resolves from config
+    alone when the caller supplies none.
     """
     missing: tuple[str, ...] = ()
     if policy == "sensitivity-scoped":
@@ -282,18 +315,18 @@ def _run_policy(
         picked = list(ctx.consumers)
     elif policy == "role-based":
         # resolvable from CONFIG ALONE: the caller's agent_roles override when supplied,
-        # else the config roles table (csp 1.4). Report undeclared inputs rather than
-        # silently selecting nobody (cli's #275 bug: "selected nobody" asserted an
-        # emptiness it could not know).
+        # else the config roles table; likewise *target_role* is ctx-or-config (csp 1.6).
+        # Report undeclared inputs rather than silently selecting nobody (cli's #275 bug:
+        # "selected nobody" asserted an emptiness it could not know).
         effective_roles = ctx.agent_roles or config.roles
         absent = []
         if not effective_roles:
             absent.append("roles")
-        if ctx.target_role is None:
+        if target_role is None:
             absent.append("target_role")
         if absent:
             return (), tuple(absent)
-        picked = [a for a, roles in effective_roles.items() if ctx.target_role in roles]
+        picked = [a for a, roles in effective_roles.items() if target_role in roles]
     else:  # pragma: no cover - _check_policy guards this at parse
         raise VerificationGatesError(f"unknown policy {policy!r}")
     out: list[str] = []
@@ -328,10 +361,13 @@ def select_critics(
         raise VerificationGatesError(f"no policy configured for hook {hook!r}")
 
     excluded = False
+    # role-based resolves its role from the caller, else the hook's configured default
+    # (csp 1.6) — so a checkout with a complete config resolves role-based with no caller.
+    target_role = ctx.target_role or hp.target_role
 
     def _run(policy: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         nonlocal excluded
-        picked, missing = _run_policy(policy, ctx, config)
+        picked, missing = _run_policy(policy, ctx, config, target_role)
         if ctx.proposer is not None and ctx.proposer in picked:
             excluded = True
             picked = tuple(c for c in picked if c != ctx.proposer)
