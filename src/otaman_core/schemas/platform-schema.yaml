@@ -28,6 +28,14 @@ properties:
           type: string
           pattern: "^[A-Za-z][A-Za-z0-9._-]{1,63}$"
           description: "Repo identifier — allows letters (any case), digits, dots, dashes, underscores. Real-world repos like 'GreenBin.Resources' or 'web.public' work as-is."
+        display_name:
+          type: string
+          maxLength: 128
+          description: "Optional UI display name for this repo (platform-schema-repo-ui-metadata 1.1). No behavioral semantics — a surface missing it falls back to `name`."
+        icon:
+          type: string
+          maxLength: 64
+          description: "Optional UI icon for this repo (emoji or short token). UI metadata only, no behavioral semantics."
         path:
           type: string
           description: "Relative path to the repo directory (from the otaman workspace folder, e.g. ../my-repo)"

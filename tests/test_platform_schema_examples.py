@@ -515,3 +515,47 @@ class TestBusBoundaries:
         )
         errors = list(jsonschema.Draft7Validator(schema).iter_errors(config))
         assert errors == [], [e.message for e in errors]
+
+
+# ---------------------------------------------------------------------------
+# platform-schema-repo-ui-metadata 1.1: repos[] optional display_name + icon,
+# with the superseded agents/programs shapes still refused (additionalProperties).
+
+
+def _minimal_config(repo_extra: dict | None = None, top_extra: dict | None = None) -> dict:
+    repo = {"name": "core", "path": "../core", "owner": "core-agent"}
+    if repo_extra:
+        repo.update(repo_extra)
+    cfg = {"project": "demo", "version": "1.0", "repos": [repo]}
+    if top_extra:
+        cfg.update(top_extra)
+    return cfg
+
+
+def test_repo_ui_metadata_validates() -> None:
+    schema = _load_schema()
+    cfg = _minimal_config({"display_name": "Core Kernel", "icon": "🧩"})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert errors == [], [e.message for e in errors]
+
+
+def test_repo_without_ui_metadata_still_valid() -> None:
+    # optional: a repo missing display_name/icon validates (surface falls back to name)
+    schema = _load_schema()
+    assert list(jsonschema.Draft7Validator(schema).iter_errors(_minimal_config())) == []
+
+
+def test_repo_agents_field_still_refused() -> None:
+    # the superseded shape: repos[].agents stays invalid, naming the key
+    schema = _load_schema()
+    cfg = _minimal_config({"agents": ["core-agent"]})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert any("agents" in e.message for e in errors)
+
+
+def test_top_level_programs_block_still_refused() -> None:
+    # the superseded shape: a top-level programs: block stays invalid
+    schema = _load_schema()
+    cfg = _minimal_config(top_extra={"programs": {"p1": {}}})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert any("programs" in e.message for e in errors)
