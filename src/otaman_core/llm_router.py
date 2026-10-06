@@ -185,6 +185,11 @@ def _route_from_raw(raw: Any, where: str) -> Route:
     local = raw.get("local", False)
     if not isinstance(local, bool):
         raise RouterError(f"{where}.route.local must be a boolean")
+    # Refuse stray per-route keys too (same finding): a misspelled ``local`` on a route
+    # would silently default to a non-local target for content meant to stay in-tenant.
+    stray = set(raw) - {"family", "model", "local"}
+    if stray:
+        raise RouterError(f"{where}.route: unknown key(s) {sorted(stray)!r}")
     return Route(family=family, model=model, local=local)
 
 
@@ -200,6 +205,18 @@ def parse_router_config(config: Mapping[str, Any]) -> RouterConfig:
         return RouterConfig()
     if not isinstance(raw, Mapping):
         raise RouterError("router must be a mapping")
+    # Refuse stray keys, as parse_verification_gates does (spec-agent lrb-gate finding
+    # 20261006T143002): a misspelled key is silently dropped, and for the security-
+    # relevant one that means an UNGUARDED tenant that looks configured — e.g.
+    # ``local-only`` (the spelling `otaman policy routes` itself prints) is not
+    # ``local_only_classes``, so the guard would admit everything while the author
+    # believes sensitive content is pinned local. Fail loud instead.
+    stray = set(raw) - {"backend", "base_url", "local_only_classes"}
+    if stray:
+        raise RouterError(
+            f"router: unknown key(s) {sorted(stray)!r}; a misspelled key is silently "
+            "unguarded (did you mean local_only_classes?)"
+        )
     backend = raw.get("backend")
     if backend is None:
         return RouterConfig(local_only_classes=_local_only(raw))

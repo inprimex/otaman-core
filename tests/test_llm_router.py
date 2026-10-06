@@ -93,6 +93,26 @@ def test_parse_rejects_malformed(config):
         parse_router_config(config)
 
 
+def test_parse_refuses_stray_router_key_the_security_relevant_case():
+    # spec-agent lrb-gate finding 20261006T143002: a misspelled local_only_classes
+    # must NOT silently yield an unguarded tenant that looks configured.
+    with pytest.raises(RouterError, match="local_only_classes"):
+        parse_router_config(
+            {"router": {"backend": "litellm-proxy", "base_url": "http://p", "local-only": ["x"]}}
+        )
+    # and on a backend-less block (the guard-only config shape)
+    with pytest.raises(RouterError, match="unknown key"):
+        parse_router_config({"router": {"local-only": ["x"]}})
+
+
+def test_parse_refuses_stray_per_route_key():
+    # a misspelled `local` on a route would silently default a sensitive route off-tenant
+    with pytest.raises(RouterError, match="unknown key"):
+        effective_route(
+            {"agents": [{"name": "a", "route": {"family": "ollama", "localhost": True}}]}, "a"
+        )
+
+
 # --- route resolution (core owns it) -----------------------------------------
 
 
