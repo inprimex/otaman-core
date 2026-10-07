@@ -559,3 +559,37 @@ def test_top_level_programs_block_still_refused() -> None:
     cfg = _minimal_config(top_extra={"programs": {"p1": {}}})
     errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
     assert any("programs" in e.message for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# otaman-meta-merge-gate 1.4: top-level ownership: map (repo-or-folder -> agent),
+# so the omo canon ownership block is schema-valid under root additionalProperties:false.
+
+
+def test_ownership_map_validates() -> None:
+    schema = _load_schema()
+    cfg = _minimal_config(top_extra={"ownership": {"otaman-folder": "plugin-agent"}})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert errors == [], [e.message for e in errors]
+
+
+def test_ownership_absent_is_valid() -> None:
+    # optional top-level key
+    schema = _load_schema()
+    assert list(jsonschema.Draft7Validator(schema).iter_errors(_minimal_config())) == []
+
+
+def test_ownership_rejects_non_agent_value() -> None:
+    # value must be an agent name (lowercase pattern) — a bad value is caught
+    schema = _load_schema()
+    cfg = _minimal_config(top_extra={"ownership": {"otaman-folder": "Not An Agent"}})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert any("ownership" in ".".join(str(p) for p in e.absolute_path) for e in errors)
+
+
+def test_unknown_top_level_key_still_refused_after_ownership() -> None:
+    # root stays additionalProperties:false — adding ownership did not open the door
+    schema = _load_schema()
+    cfg = _minimal_config(top_extra={"nonsense_top_key": {}})
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(cfg))
+    assert any("nonsense_top_key" in e.message for e in errors)

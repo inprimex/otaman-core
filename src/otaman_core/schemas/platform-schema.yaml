@@ -948,6 +948,19 @@ properties:
   # converges: (a) array of {name, enabled} from otaman-init-dev-scaffold;
   # (b) mapping {agent_name: {owns, role, ...}} from program-companion-repos-scaffold.
   # Accept both via oneOf.
+  ownership:
+    type: object
+    description: >
+      Program-level ownership map (otaman-meta-merge-gate 1.4): repo-or-folder key ->
+      owning agent name (e.g. `otaman-folder: plugin-agent`). The omo canon ownership
+      block — declared here as a top-level key so it is schema-valid under the root's
+      `additionalProperties: false`. Distinct from per-repo `repos[].owner` /
+      `owner-paths` (which route work WITHIN a repo); this maps whole repos or folders
+      to their owning agent for the meta-merge gate and ownership protection.
+    additionalProperties:
+      type: string
+      pattern: "^[a-z][a-z0-9-]{1,63}$"
+      description: "Owning agent name."
   agents:
     oneOf:
       - type: array
